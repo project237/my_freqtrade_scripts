@@ -1,3 +1,5 @@
+# testing new repo | 2022-06-28 16:37
+
 """
 ok, so this will be the strategy file where we are gonna be running for each single iteration of 
 the backtest loop. 
