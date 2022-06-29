@@ -127,3 +127,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+test_download_data_for_AB.sh
