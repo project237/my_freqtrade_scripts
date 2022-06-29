@@ -3,12 +3,14 @@
 """
 ok, so this will be the strategy file where we are gonna be running for each single iteration of 
 the backtest loop. 
+
 1- Inside populate_indicators, we simply use M_dt column to the find the correct 15 min candle and insert the columns "buy", 
 price1-3 and indicator
 as new column to the backtest dataframe. All but first columns will have the same value for each row (TODO - workaround) and 
 th column buy will insert a 1 for an otherwise 0 on whichever row matches the the M_dt   
 
 2- Inside populate_buy_trend we just instruct it to buy when the column "buy" is 1. 
+
 3- Inside populate_sell_trend we instruct it to sell whenever either price2 or price3 is within the candle range. 
 """
 
@@ -94,7 +96,7 @@ class InformativeSample(IStrategy):
     stoploss = -0.10
 
     ## Optimal timeframe for the strategy
-    timeframe = '5m'
+    timeframe = '1h'
 
     ## trailing stoploss
     trailing_stop = False
