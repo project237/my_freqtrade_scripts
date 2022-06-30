@@ -7,7 +7,7 @@ the backtest loop.
 1- Inside populate_indicators, we simply use M_dt column to the find the correct 15 min candle and insert the columns "buy", 
 price1-3 and indicator
 as new column to the backtest dataframe. All but first columns will have the same value for each row (TODO - workaround) and 
-th column buy will insert a 1 for an otherwise 0 on whichever row matches the the M_dt   
+the column "buy" will insert a 1 for an otherwise 0 on whichever row matches the the M_dt   
 
 2- Inside populate_buy_trend we just instruct it to buy when the column "buy" is 1. 
 
@@ -49,7 +49,7 @@ class InformativeSample(IStrategy):
     singals = pd.read_json("CND_AB_parsed_fix1.json")
 
     # parameters that will go to hyperopt
-    my_params = {"buy_margin": 0, "sell_margin": 0}
+    my_params = {"buy_buffer": 0, "sell_buffer": 0}
 
     def first_is_recent_or_eq(self, ts1, ts2, use_arrow=True):
         """
@@ -177,11 +177,11 @@ class InformativeSample(IStrategy):
         :return: pd.DataFrame with buy column
         """
         
-        # we esentially buy whenever the (base price + buy_margin) is within low price and high price 
+        # we esentially buy whenever the (base price + buy_buffer) is within low price and high price 
         # (this will go to hyperopt later) 
         dataframe.loc[
             (
-                (dataframe['low_15m'] <= (dataframe['base'] + self.my_params["buy_margin"])  <= dataframe['high_15m'])
+                (dataframe['low_15m'] <= (dataframe['base'] + self.my_params["buy_buffer"])  <= dataframe['high_15m'])
             ),
             'buy'] = 1
 
@@ -198,8 +198,8 @@ class InformativeSample(IStrategy):
         # we sell whenever the either above or below price is within the low and high of the candle
         dataframe.loc[
             (
-                (dataframe['low_15m'] <= (dataframe['above'] + self.my_params["sell_margin"])  <= dataframe['high_15m']) |
-                (dataframe['low_15m'] <= (dataframe['below'] + self.my_params["sell_margin"])  <= dataframe['high_15m'])
+                (dataframe['low_15m'] <= (dataframe['above'] + self.my_params["sell_buffer"])  <= dataframe['high_15m']) |
+                (dataframe['low_15m'] <= (dataframe['below'] + self.my_params["sell_buffer"])  <= dataframe['high_15m'])
             ),
             'sell'] = 1
         return dataframe
