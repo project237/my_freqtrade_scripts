@@ -27,11 +27,6 @@ import arrow
 # from pandas import pd.DataFrame
 ## --------------------------------
 
-# method 1 - define a method that will be applied to each line of the dataframe and populate the new columns
-# based on the dt of the candle with info of the most recent signal at the time. 
-# ||
-
-
 class InformativeSample(IStrategy):
     # So all the methods below are called only once per backtest and each time during the bot loop for 
     # live trading and dry run modes
@@ -46,17 +41,28 @@ class InformativeSample(IStrategy):
     > python3 freqtrade -s InformativeSample
     """
 
+    # An informative dictionary mapping ticker df column to their meanings - 2022-06-30 21:07
+    ticker_df_column_ref = {
+        "timestamp": 0,
+        "open"     : 1,
+        "high"     : 2,
+        "low"      : 3,
+        "close"    : 4,
+        "volume"   : 5
+    }
+
     # we import our cindictor AB sorted df here for use in populate_indicators
-    singals = pd.read_json("CND_AB_parsed_fix1.json")
+    signals = pd.read_json("CND_AB_parsed_fix1.json")
 
     # parameters that will go to hyperopt
+    # todo - initialize based on your current strategy
     my_params = {"buy_buffer": 0, "sell_buffer": 0}
 
     def first_is_recent_or_eq(self, ts1, ts2, use_arrow=True):
         """
         compares two unix timestamps, if the timetamps might be of different units, 
         keep use_arrow unchanged
-        todo - check if the above is the case
+        tod - check if the above is the case
         """
         if use_arrow:
             return arrow.get(ts1) >= arrow.get(ts2)
@@ -74,7 +80,7 @@ class InformativeSample(IStrategy):
         # dict_signals = {"price1":None, "price2":None, "price3":None, "indicator": None}
 
         # define the filter that selects all rows before the candle_T
-        at_or_beforeF = signals_df["M_dt"].apply(lambda x: self.first_is_recent_or_eq(candle_T, x))
+        at_or_beforeF = signals_df["M_dt"].apply(lambda x: self.first_is_recent_or_eq(candle_T, x, use_arrow=0))
 
         # return the selected columns, this is a series object
         at_or_before = signals_df.loc[at_or_beforeF, cols]
@@ -102,8 +108,8 @@ class InformativeSample(IStrategy):
     timeframe = '1h'
 
     ## trailing stoploss
-    trailing_stop = False
-    trailing_stop_positive = 0.02
+    trailing_stop                 = False
+    trailing_stop_positive        = 0.02
     trailing_stop_positive_offset = 0.04
 
     ## run "populate_indicators" only for new candle
@@ -112,15 +118,15 @@ class InformativeSample(IStrategy):
     ## Experimental settings (configuration will overide these if set)
     use_sell_signal = True
     # todo - check meaning of this
-    sell_profit_only = False
+    sell_profit_only         = False
     ignore_roi_if_buy_signal = False
 
     ## Optional order type mapping
     # todo - check if these affect the bt
     order_types = {
-        'buy': 'limit',
-        'sell': 'limit',
-        'stoploss': 'market',
+        'buy'                 : 'limit',
+        'sell'                : 'limit',
+        'stoploss'            : 'market',
         'stoploss_on_exchange': False
     }
 
@@ -138,7 +144,6 @@ class InformativeSample(IStrategy):
         """
         return []
 
-    # || - replace candle_T with the correct column name
     def populate_indicators(self, dataframe: pd.DataFrame, metadata: dict) -> pd.DataFrame:
         """
         Adds several different TA indicators to the given pd.DataFrame
@@ -146,31 +151,33 @@ class InformativeSample(IStrategy):
         Performance Note: For the best performance be frugal on the number of indicators
         you are using. Let uncomment only the indicator you are using in your strategies
         or your hyperopt configuration, otherwise you will waste your memory and CPU usage.
+        !! - when binance data is converted from json to df, row.loc[0] inside lambda expression should
+        !! refer to the candle timestamp
         """
 
         # We have two apporaches here so comment them as you need
-        # signals exists as a global variable here CONSIDER PASSING IT AS ARGUMENT IF THIS VERSION FAILS
+        # !! signals exists as a global variable here CONSIDER PASSING IT AS ARGUMENT IF THIS VERSION FAILS
 
         ## dataframe['ema20'] = ta.EMA(dataframe, timeperiod=20)
         ## dataframe['ema50'] = ta.EMA(dataframe, timeperiod=50)
         ## dataframe['ema100'] = ta.EMA(dataframe, timeperiod=100)
 
-        # approach 1 new columns at once
+        # APPROACH 1 new columns at once
         # new_cols = ["base","above","below","indicator", "M_dt"]
 
         # # inserts new empty columns to the price dataframe with NaN values
         # dataframe = dataframe.reindex(columns = dataframe.columns.tolist() + new_cols)
 
         # # populate empty columns from signals dataframe using insert_signal_cols()
-        # dataframe = dataframe.apply(lambda row: populate_signal_cols(row.candle_T, singals), axis='columns', result_type='expand')
+        # dataframe = dataframe.apply(lambda row: populate_signal_cols(row.loc[0], singals), axis='columns', result_type='expand')
 
         # approach 2 - get the dict and populate / expand one by one 
-        dataframe["signal"] = dataframe.apply(lambda row: self.populate_signal_cols(row.candle_T, self.signals), axis='columns')
-        dataframe["base"] = dataframe.apply(lambda row: row.signal["base"], axis="columns") 
-        dataframe["above"] = dataframe.apply(lambda row: row.signal["above"], axis="columns")
-        dataframe["below"] = dataframe.apply(lambda row: row.signal["below"], axis="columns")
+        dataframe["signal"]    = dataframe.apply(lambda row: self.populate_signal_cols(row.loc[0], self.signals), axis='columns')
+        dataframe["base"]      = dataframe.apply(lambda row: row.signal["base"], axis="columns")
+        dataframe["above"]     = dataframe.apply(lambda row: row.signal["above"], axis="columns")
+        dataframe["below"]     = dataframe.apply(lambda row: row.signal["below"], axis="columns")
         dataframe["indicator"] = dataframe.apply(lambda row: row.signal["indicator"], axis="columns")
-        dataframe["M_dt"] = dataframe.apply(lambda row: row.signal["M_dt"], axis="columns")
+        dataframe["M_dt"]      = dataframe.apply(lambda row: row.signal["M_dt"], axis="columns")
 
         return dataframe
 
@@ -186,7 +193,10 @@ class InformativeSample(IStrategy):
         # (this will go to hyperopt later) 
         dataframe.loc[
             (
-                (dataframe['low_15m'] <= (dataframe['base'] + self.my_params["buy_buffer"])  <= dataframe['high_15m'])
+                # (dataframe['low_15m'] <= (dataframe['base'] + self.my_params["buy_buffer"])  <= dataframe['high_15m'])
+
+                # in case reference needed, check deprecated line above. 
+                (dataframe.loc[:,3] <= (dataframe['base'] + self.my_params["buy_buffer"])  <= dataframe.loc[:,2])
             ),
             'buy'] = 1
 
@@ -203,8 +213,12 @@ class InformativeSample(IStrategy):
         # we sell whenever the either above or below price is within the low and high of the candle
         dataframe.loc[
             (
-                (dataframe['low_15m'] <= (dataframe['above'] + self.my_params["sell_buffer"])  <= dataframe['high_15m']) |
-                (dataframe['low_15m'] <= (dataframe['below'] + self.my_params["sell_buffer"])  <= dataframe['high_15m'])
+                # (dataframe['low_15m'] <= (dataframe['above'] + self.my_params["sell_buffer"])  <= dataframe['high_15m']) |
+                # (dataframe['low_15m'] <= (dataframe['below'] + self.my_params["sell_buffer"])  <= dataframe['high_15m'])
+
+                # in case reference needed, check deprecated line above. 
+                (dataframe.loc[:,3] <= (dataframe['above'] + self.my_params["sell_buffer"])  <= dataframe.loc[:,2]) |
+                (dataframe.loc[:,3] <= (dataframe['below'] + self.my_params["sell_buffer"])  <= dataframe.loc[:,2])
             ),
             'sell'] = 1
         return dataframe
