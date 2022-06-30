@@ -16,6 +16,7 @@ the column "buy" will insert a 1 for an otherwise 0 on whichever row matches the
 
 
 ## --- Do not remove these libs ---
+from ctypes.wintypes import BOOL
 from freqtrade.strategy import IStrategy, merge_informative_pair
 from typing import Dict, List
 from functools import reduce
@@ -55,6 +56,7 @@ class InformativeSample(IStrategy):
         """
         compares two unix timestamps, if the timetamps might be of different units, 
         keep use_arrow unchanged
+        todo - check if the above is the case
         """
         if use_arrow:
             return arrow.get(ts1) >= arrow.get(ts2)
@@ -63,14 +65,15 @@ class InformativeSample(IStrategy):
     # |*|
     def populate_signal_cols(self, candle_T, signals_df):
         """
-        df_parsed - dataframe that contains parsed signal values indexed by datetime 
-        candle_time - unix timestamp of the current candle start time 
-        WARNING - assumes candle_time is the STARTING timestamp of a given candle  
+        signals_df  - dataframe that contains parsed signal values indexed by datetime 
+        candle_T    - unix timestamp of the current candle start time 
+        !!WARNING   - assumes candle_T is the STARTING timestamp of a given candle  
+        TODO - CHECK ASSUMPTION ABOVE
         """
         cols = ['base', 'above', 'below',"indicator", "M_dt"]
         # dict_signals = {"price1":None, "price2":None, "price3":None, "indicator": None}
 
-        # define the filter that selects all rows before the candle_time
+        # define the filter that selects all rows before the candle_T
         at_or_beforeF = signals_df["M_dt"].apply(lambda x: self.first_is_recent_or_eq(candle_T, x))
 
         # return the selected columns, this is a series object
@@ -88,7 +91,7 @@ class InformativeSample(IStrategy):
         "60":  0.01,
         "30":  0.03,
         "20":  0.04,
-        "0":  0.05
+         "0":  0.05
     }
 
     ## Optimal stoploss designed for the strategy
@@ -108,10 +111,12 @@ class InformativeSample(IStrategy):
 
     ## Experimental settings (configuration will overide these if set)
     use_sell_signal = True
-    sell_profit_only = True
+    # todo - check meaning of this
+    sell_profit_only = False
     ignore_roi_if_buy_signal = False
 
     ## Optional order type mapping
+    # todo - check if these affect the bt
     order_types = {
         'buy': 'limit',
         'sell': 'limit',
