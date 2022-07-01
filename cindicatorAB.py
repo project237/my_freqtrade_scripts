@@ -55,32 +55,40 @@ class InformativeSample(IStrategy):
     signals = pd.read_json("CND_AB_parsed_fix1.json")
 
     # parameters that will go to hyperopt
-    # todo - initialize based on your current strategy
-    my_params = {"buy_buffer": 0, "sell_buffer": 0}
+    my_params = {
+        "buy_buffer" : 1.01,
+        "sell_buffer": 1.01
+        # these two will be directly multiplied with the raw signal price
+     }
 
     def first_is_recent_or_eq(self, ts1, ts2, use_arrow=True):
         """
         compares two unix timestamps, if the timetamps might be of different units, 
         keep use_arrow unchanged
-        tod - check if the above is the case
         """
         if use_arrow:
             return arrow.get(ts1) >= arrow.get(ts2)
         return ts1 >= ts2
 
     # |*|
-    def populate_signal_cols(self, candle_T, signals_df):
+    def return_current_signal_as_dict(self, candle_T, signals_df):
         """
         signals_df  - dataframe that contains parsed signal values indexed by datetime 
         candle_T    - unix timestamp of the current candle start time 
         !!WARNING   - assumes candle_T is the STARTING timestamp of a given candle  
         TODO - CHECK ASSUMPTION ABOVE
         """
+        # METHOD 1
+        # here we want to pick the most recent signal that is at or before the candle timestamp
+        # the best way of doing this without doing redundant computation would be to
+        # 1- start with from candle 1, go down until a signal with later ts is found, 
+        # 2- Pick the latest one, assign its values to the columns  
+
         cols = ['base', 'above', 'below',"indicator", "M_dt"]
         # dict_signals = {"price1":None, "price2":None, "price3":None, "indicator": None}
 
         # define the filter that selects all rows before the candle_T
-        at_or_beforeF = signals_df["M_dt"].apply(lambda x: self.first_is_recent_or_eq(candle_T, x, use_arrow=0))
+        at_or_beforeF = signals_df["M_dt"].apply(lambda x: self.first_is_recent_or_eq(candle_T, x, use_arrow=False))
 
         # return the selected columns, this is a series object
         at_or_before = signals_df.loc[at_or_beforeF, cols]
@@ -89,8 +97,7 @@ class InformativeSample(IStrategy):
         last_dict = at_or_before.iloc[-1].to_dict()
 
         return last_dict
-
-
+    
     ## Minimal ROI designed for the strategy.
     ## This attribute will be overridden if the config file contains "minimal_roi"
     minimal_roi = {
@@ -102,7 +109,9 @@ class InformativeSample(IStrategy):
 
     ## Optimal stoploss designed for the strategy
     ## This attribute will be overridden if the config file contains "stoploss"
-    stoploss = -0.10
+    # !! leaving this ratio well below what the exit signal should be doing,
+    # !! in effect, we're not using this
+    stoploss = -0.25
 
     ## Optimal timeframe for the strategy
     timeframe = '1h'
@@ -116,13 +125,12 @@ class InformativeSample(IStrategy):
     ta_on_candle = False
 
     ## Experimental settings (configuration will overide these if set)
-    use_sell_signal = True
-    # todo - check meaning of this
-    sell_profit_only         = False
-    ignore_roi_if_buy_signal = False
+    use_exit_signal            = True
+    ignore_roi_if_entry_signal = True
+
 
     ## Optional order type mapping
-    # todo - check if these affect the bt
+    # !! leave these as is since these don't affect the bt
     order_types = {
         'buy'                 : 'limit',
         'sell'                : 'limit',
@@ -169,10 +177,10 @@ class InformativeSample(IStrategy):
         # dataframe = dataframe.reindex(columns = dataframe.columns.tolist() + new_cols)
 
         # # populate empty columns from signals dataframe using insert_signal_cols()
-        # dataframe = dataframe.apply(lambda row: populate_signal_cols(row.loc[0], singals), axis='columns', result_type='expand')
+        # dataframe = dataframe.apply(lambda row: return_current_signal_as_dict(row.loc[0], self.signals), axis='columns', result_type='expand')
 
         # approach 2 - get the dict and populate / expand one by one 
-        dataframe["signal"]    = dataframe.apply(lambda row: self.populate_signal_cols(row.loc[0], self.signals), axis='columns')
+        dataframe["signal"]    = dataframe.apply(lambda row: self.return_current_signal_as_dict(row.loc[0], self.signals), axis='columns')
         dataframe["base"]      = dataframe.apply(lambda row: row.signal["base"], axis="columns")
         dataframe["above"]     = dataframe.apply(lambda row: row.signal["above"], axis="columns")
         dataframe["below"]     = dataframe.apply(lambda row: row.signal["below"], axis="columns")
@@ -193,10 +201,10 @@ class InformativeSample(IStrategy):
         # (this will go to hyperopt later) 
         dataframe.loc[
             (
-                # (dataframe['low_15m'] <= (dataframe['base'] + self.my_params["buy_buffer"])  <= dataframe['high_15m'])
+                # (dataframe['low_15m'] <= (dataframe['base'] * self.my_params["buy_buffer"])  <= dataframe['high_15m'])
 
                 # in case reference needed, check deprecated line above. 
-                (dataframe.loc[:,3] <= (dataframe['base'] + self.my_params["buy_buffer"])  <= dataframe.loc[:,2])
+                (dataframe.loc[:,3] <= (dataframe['base'] * self.my_params["buy_buffer"])  <= dataframe.loc[:,2])
             ),
             'buy'] = 1
 
@@ -213,12 +221,12 @@ class InformativeSample(IStrategy):
         # we sell whenever the either above or below price is within the low and high of the candle
         dataframe.loc[
             (
-                # (dataframe['low_15m'] <= (dataframe['above'] + self.my_params["sell_buffer"])  <= dataframe['high_15m']) |
-                # (dataframe['low_15m'] <= (dataframe['below'] + self.my_params["sell_buffer"])  <= dataframe['high_15m'])
+                # (dataframe['low_15m'] <= (dataframe['above'] * self.my_params["sell_buffer"])  <= dataframe['high_15m']) |
+                # (dataframe['low_15m'] <= (dataframe['below'] * self.my_params["sell_buffer"])  <= dataframe['high_15m'])
 
                 # in case reference needed, check deprecated line above. 
-                (dataframe.loc[:,3] <= (dataframe['above'] + self.my_params["sell_buffer"])  <= dataframe.loc[:,2]) |
-                (dataframe.loc[:,3] <= (dataframe['below'] + self.my_params["sell_buffer"])  <= dataframe.loc[:,2])
+                (dataframe.loc[:,3] <= (dataframe['above'] * self.my_params["sell_buffer"])  <= dataframe.loc[:,2]) |
+                (dataframe.loc[:,3] <= (dataframe['below'] * self.my_params["sell_buffer"])  <= dataframe.loc[:,2])
             ),
             'sell'] = 1
         return dataframe
