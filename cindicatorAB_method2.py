@@ -73,7 +73,6 @@ class InformativeSample(IStrategy):
             return arrow.get(ts1) >= arrow.get(ts2)
         return ts1 >= ts2
 
-   
     def return_current_signal_as_dict(self, candle_T):
         """
          self.signals_df_C  - dataframe that contains parsed signal values indexed by datetime 
@@ -103,7 +102,7 @@ class InformativeSample(IStrategy):
         
         # check index_later to pick the last index, and delete signal from all other indices
         cols = ['base', 'above', 'below',"indicator", "M_dt"]
-        last_dict = self.signals_df_C.loc(index_later[-1], cols).to_dict()
+        last_dict = self.signals_df_C.loc[index_later[-1], cols].to_dict()
 
         # delete the rest if any 
         self.signals_df_C.drop(index_later[:-1])
