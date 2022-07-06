@@ -129,3 +129,4 @@ dmypy.json
 .pyre/
 test_download_data_for_AB.sh
 freqtrade_data_to_df.py
+output/
