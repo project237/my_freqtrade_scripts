@@ -4,12 +4,7 @@
 # 2022-07-07 17:38
 
 """
-Things todo:
-1- Filter all signals for the current symbol, that are not bounded by my_params["min_indicator"] and my_params["mmax_indicator"]
-2- Within the class bt, create a df that stores 
-    a) the Mid of the bought signal
-    b) the index / timestamp of the candle that signal is bought and sold (if any)
-
+Some text
 """
 
 
@@ -27,13 +22,17 @@ import arrow
 
 # parameters that will go to hyperopt
 my_params = {
-    "buy_buffer" : 1.01,
-    "sell_buffer": 1.01,
-    "min_indicator": 80, # for long signals
+    "trade_buffer" : 0.99,
+    "min_indicator": 80,   # for long signals
     "max_indicator": 20  # for short signals
     # these two will be directly multiplied with the raw signal price
     }
 
+def effective_price(current_price):
+    """
+    returns the effective buy price, based on the current price
+    """
+    return current_price * my_params["trade_buffer"]
 
 
 def first_is_recent_or_eq(ts1, ts2, use_arrow=True):
@@ -45,12 +44,11 @@ def first_is_recent_or_eq(ts1, ts2, use_arrow=True):
             return arrow.get(ts1) >= arrow.get(ts2)
         return ts1 >= ts2
 
-def return_current_signal_as_dict(signals_df_C, candle_T):
+def return_current_signal_as_dict(signals_df_C, candle_T, high, low):
         """
         signals_df_C  - dataframe that contains parsed signal values indexed by datetime 
         candle_T    - unix timestamp of the current candle start time 
         !!WARNING   - assumes candle_T is the STARTING timestamp of a given candle  
-        TODO - CHECK ASSUMPTION ABOVE
         """
         # METHOD 2 | 2022-07-01 16:07 -
         # !! Unlike the last one, this requires iteration, so will be instersting to see which one is
@@ -67,6 +65,11 @@ def return_current_signal_as_dict(signals_df_C, candle_T):
         for index, row in signals_df_C.iterrows():
             # if the signal is later or eq to the candle timestamp
             if first_is_recent_or_eq(candle_T, row["M_dt"], use_arrow=False):
+                # todo - test this
+                # drop signal from df if high and low is not between last_dict["above"] and last_dict["below"]
+                if (high >= effective_price(row["above"]) or low <= effective_price(row["below"])):  # if not in range
+                    signals_df_C.drop(index, inplace=True) 
+                    continue
                 index_earlier.append(index)
             # if the signal is later than the candle timestamp
             else: 
@@ -83,6 +86,8 @@ def return_current_signal_as_dict(signals_df_C, candle_T):
         # proceed without dropping if exactly 1 signal
             
         last_dict = signals_df_C.loc[index_earlier[-1]].to_dict()
+
+
 
         return last_dict
 
@@ -121,8 +126,8 @@ class bt():
     """
 
     def __init__(self) -> None:
-        self.last_buy_signal_id = None
-        self.last_sell_signal_id = None
+        self.last_entry_signal_id = None
+        self.last_exit_signal_id = None
         self.buys_set = set()   # these will be deprecated 
         self.sells_set = set()  # these will be deprecated
         self.trades = []
@@ -131,18 +136,18 @@ class bt():
         """
         Called by populate_buy_trend whenever the nominal buying condition holds. 
         If the nominal buy condition is produced by a  new signal (and not for another that has already been bought)
-        returns true after updating last_buy_signal_id to current signal, otherwise returns false. 
+        returns true after updating last_entry_signal_id to current signal, otherwise returns false. 
         """
         current_signal_dict = row.signal
         buy_index = row.name
-        # todo - get the actual by price with buy_buffer depending on the type
+        # todo - get the actual by price with trade_buffer depending on the type
         buy_price = None
         current_signal_id = current_signal_dict["Mid"]
 
-        new_signal = (self.last_buy_signal_id != current_signal_id)
+        new_signal = (self.last_entry_signal_id != current_signal_id)
 
         if new_signal:
-            self.last_buy_signal_id = current_signal_id
+            self.last_entry_signal_id = current_signal_id
             # add the current signal to the set of bought signals
             self.buys_set.add(current_signal_id)
 
@@ -161,7 +166,7 @@ class bt():
         """
         Called by populate_sell_trend whenever the nominal selling condition holds. 
         If the nominal sell condition is produced by a  new signal (and not for another that has already been sold)
-        returns true after updating last_sell_signal_id to current signal, otherwise returns false. 
+        returns true after updating last_exit_signal_id to current signal, otherwise returns false. 
         """
         # check if the signal has been bought before
         # we check the set of bought signals, if the current signal is in the set, then it has been bought
@@ -172,20 +177,19 @@ class bt():
         has_been_bought = (current_signal_id in self.buys_set)
 
         # check if the signal has not been sold before
-        new_sell_signal = (self.last_sell_signal_id != current_signal_id)
+        new_sell_signal = (self.last_exit_signal_id != current_signal_id)
 
         if (new_sell_signal and has_been_bought):
-            self.last_sell_signal_id = current_signal_id
+            self.last_exit_signal_id = current_signal_id
             # add the current signal to the set of sold signals
             self.sells_set.add(current_signal_id)
-
 
             return 1
         # pass since others will be pass as well
         else:
             return 0
 
-class InformativeSample(IStrategy):
+class cindicatorAB_longshort(IStrategy):
     # So all the methods below are called only once per backtest and each time during the bot loop for 
     # live trading and dry run modes
     # keep this in mind..
@@ -209,9 +213,8 @@ class InformativeSample(IStrategy):
     signals = pd.read_json(signal_file)
 
     # filter signals df for only our TICKER and those with indicator greater than min_indicator 
-    signal_df_indicator_filtered = signals.loc[((signals["ticker"] == "ZEC/USD") & (signals["indicator"] > my_params["min_indicator"])), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
+    signal_df_indicator_filtered = signals.loc[((signals.ticker == "ZEC/USD") & ~(signals.indicator.between(my_params["min_indicator"], my_params["max_indicator"]))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
     signal_df = signal_df_indicator_filtered.copy()
-
 
     ## Minimal ROI designed for the strategy.
     ## This attribute will be overridden if the config file contains "minimal_roi"
@@ -294,12 +297,12 @@ class InformativeSample(IStrategy):
         df_copy = dataframe.assign(buy = 0)
 
         # FILTER FOR THE NOMINAL BUY CONDITION
-        # we esentially buy whenever the (base price + buy_buffer) is within low price and high price 
+        # we esentially buy whenever the (base price + trade_buffer) is within low price and high price 
         # (this will go to hyperopt later) 
         # todo - remove unnecessary computation here
         df_nominal_buy = df_copy.loc[
-            (df_copy.loc[:,3] <= (df_copy['base'] * my_params["buy_buffer"])) & \
-            ( (df_copy['base'] * my_params["buy_buffer"]) <= df_copy.loc[:,2])
+            (df_copy.loc[:,3] <= (df_copy['base'] * my_params["trade_buffer"])) & \
+            ( (df_copy['base'] * my_params["trade_buffer"]) <= df_copy.loc[:,2])
         ]
 
         df_copy["buy"] = df_nominal_buy.progress_apply(lambda row: self.bt.is_actual_buy(row.signal), axis='columns')
@@ -321,8 +324,8 @@ class InformativeSample(IStrategy):
         # filter for the nominal sell condition
         # we sell whenever the either above or below price is within the low and high of the candle
         df_nominal_sell = dataframe.loc[
-            (dataframe['above'] * my_params["sell_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2]) |
-            (dataframe['below'] * my_params["sell_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
+            (dataframe['above'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2]) |
+            (dataframe['below'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
         ]
         
         dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt.is_actual_sell(row.Mid), axis='columns')
