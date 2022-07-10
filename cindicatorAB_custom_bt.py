@@ -95,30 +95,36 @@ class trade():
     """
     Keeps the trade object that will be stored by class bt()
     Initialized with the signal object of the signal the trade was opened upon
+    Trade status will be kept by class bt()
     """
-    def __init__(self, signal) -> None:
-        self.signal    = signal
-        self.Mid       = signal["Mid"]
-        self.indicator = signal["indicator"]
+    def __init__(self, signal):
+        self.signal          = signal
+        self.signal_id       = signal["Mid"]
+        self.indicator       = signal["indicator"]
+        self.effective_above = effective_price(signal["above"])
+        self.effective_below = effective_price(signal["below"])
 
-        self.type = None
-        if self.indicator >= my_params["min_indicator"]:
-            self.type = "L"
-        elif self.indicator <= my_params["max_indicator"]:
-            self.type = "S"
+        self.type        = None
+        if   self.indicator  >= my_params["min_indicator"]:
+             self.type        = "L"
+        elif self.indicator  <= my_params["max_indicator"]:
+             self.type        = "S"
         assert self.type is not None, "long / short type is None"
 
-        self.buy_index      = None
+        self.exit_price = (self.above if self.type == "L" else self.below)
+
+        # these will be filled upon entry 
+        self.entry_price = None
+        self.entry_index = None
+
+        # these will be filled upon exit
         self.exit_index     = None
-        self.buy_price      = None
-        self.exit_price     = None
         self.profit         = None
         self.profit_percent = None
 
-    def set_exit_price(self, price):
-        self.exit_price = price
-
-
+    def set_entry_price(self, price, index):
+        self.entry_price = price
+        self.entry_index = index
 
 class bt():
     """
@@ -139,9 +145,9 @@ class bt():
         returns true after updating last_entry_signal_id to current signal, otherwise returns false. 
         """
         current_signal_dict = row.signal
-        buy_index = row.name
+        entry_index = row.name
         # todo - get the actual by price with trade_buffer depending on the type
-        buy_price = None
+        entry_price = None
         current_signal_id = current_signal_dict["Mid"]
 
         new_signal = (self.last_entry_signal_id != current_signal_id)
@@ -154,8 +160,8 @@ class bt():
             # create the trade object with the current signal
             trade_obj = trade(current_signal_dict)
             self.trades.append(trade_obj)
-            self.buy_index = buy_index
-            self.buy_price = buy_price
+            self.entry_index = entry_index
+            self.entry_price = entry_price
 
             return 1
         # pass since others will be pass as well
@@ -274,7 +280,8 @@ class cindicatorAB_longshort(IStrategy):
         """
         !! row.loc[0] - the candle timestamp
         """
-        dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0]), axis='columns')
+        dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0], row.loc[2], row.loc[3]), axis='columns')
+        # dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0]), axis='columns')
         dataframe["base"]         = dataframe.apply(lambda row: row["signal"].get("base"), axis="columns")
         dataframe["above"]        = dataframe.apply(lambda row: row["signal"].get("above"), axis="columns")
         dataframe["below"]        = dataframe.apply(lambda row: row["signal"].get("below"), axis="columns")
