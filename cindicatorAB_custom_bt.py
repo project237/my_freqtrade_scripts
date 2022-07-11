@@ -63,7 +63,7 @@ def return_current_signal_as_dict(signals_df_C, candle_T, high, low):
         index_earlier = []
         # goes from eraliest to latest, 
         for index, row in signals_df_C.iterrows():
-            # if the signal is later or eq to the candle timestamp
+            # if the signal is earlier or eq to the candle timestamp
             if first_is_recent_or_eq(candle_T, row["M_dt"], use_arrow=False):
                 # todo - test this
                 # drop signal from df if high and low is not between last_dict["above"] and last_dict["below"]
@@ -87,8 +87,6 @@ def return_current_signal_as_dict(signals_df_C, candle_T, high, low):
             
         last_dict = signals_df_C.loc[index_earlier[-1]].to_dict()
 
-
-
         return last_dict
 
 class trade():
@@ -97,12 +95,14 @@ class trade():
     Initialized with the signal object of the signal the trade was opened upon
     Trade status will be kept by class bt()
     """
-    def __init__(self, signal):
+    def __init__(self, signal, candle_index):
+        self.entry_index     = candle_index
         self.signal          = signal
         self.signal_id       = signal["Mid"]
         self.indicator       = signal["indicator"]
         self.effective_above = effective_price(signal["above"])
         self.effective_below = effective_price(signal["below"])
+        self.effective_entry = effective_price(signal["base"])
 
         self.type        = None
         if   self.indicator  >= my_params["min_indicator"]:
@@ -111,20 +111,21 @@ class trade():
              self.type        = "S"
         assert self.type is not None, "long / short type is None"
 
-        self.exit_price = (self.above if self.type == "L" else self.below)
-
-        # these will be filled upon entry 
-        self.entry_price = None
-        self.entry_index = None
 
         # these will be filled upon exit
         self.exit_index     = None
-        self.profit         = None
-        self.profit_percent = None
+        self.is_win    = None
+        self.exit_price = None
+        self.profit_percent  = None
+        
+        if (self.is_win and self.type == "L") or (not self.is_win and self.type == "S"):
+            self.exit_price = self.effective_above
 
-    def set_entry_price(self, price, index):
-        self.entry_price = price
-        self.entry_index = index
+            # todo - fix this
+            self.profit_percent = (self.exit_price - self.effective_entry) / self.effective_entry
+        else:
+            self.exit_price = self.effective_below
+
 
 class bt():
     """
@@ -133,10 +134,11 @@ class bt():
 
     def __init__(self) -> None:
         self.last_entry_signal_id = None
-        self.last_exit_signal_id = None
-        self.buys_set = set()   # these will be deprecated 
-        self.sells_set = set()  # these will be deprecated
-        self.trades = []
+        self.last_exit_signal_id  = None
+        self.buys_set             = set()   # these will be deprecated
+        self.sells_set            = set()  # these will be deprecated
+        self.open_trades          = [] # at the end of bt, we'll check this to see if any trades were left open
+        self.closed_trades        = [] # at the end of bt, will be turned into a dataframe to give us the bt results
 
     def is_actual_buy(self, row : Dict) -> bool:
         """
@@ -145,30 +147,28 @@ class bt():
         returns true after updating last_entry_signal_id to current signal, otherwise returns false. 
         """
         current_signal_dict = row.signal
-        entry_index = row.name
-        # todo - get the actual by price with trade_buffer depending on the type
-        entry_price = None
-        current_signal_id = current_signal_dict["Mid"]
+        entry_index         = row.name
+        current_signal_id   = current_signal_dict["Mid"]
 
-        new_signal = (self.last_entry_signal_id != current_signal_id)
+        is_new_signal = (self.last_entry_signal_id != current_signal_id)
 
-        if new_signal:
+        if is_new_signal:
+
             self.last_entry_signal_id = current_signal_id
             # add the current signal to the set of bought signals
             self.buys_set.add(current_signal_id)
 
             # create the trade object with the current signal
-            trade_obj = trade(current_signal_dict)
-            self.trades.append(trade_obj)
-            self.entry_index = entry_index
-            self.entry_price = entry_price
+            trade_obj = trade(current_signal_dict, entry_index)
+            self.open_trades.append(trade_obj)
 
             return 1
         # pass since others will be pass as well
         else:
             return 0
 
-    def is_actual_sell(self, current_signal_dict, sell_index, sell_price):
+    # todo - complete win or loss, preferably from populate_sell_trend
+    def is_actual_sell(self, current_signal_dict, sell_index, win_or_loss: bool):
         """
         Called by populate_sell_trend whenever the nominal selling condition holds. 
         If the nominal sell condition is produced by a  new signal (and not for another that has already been sold)
@@ -177,18 +177,20 @@ class bt():
         # check if the signal has been bought before
         # we check the set of bought signals, if the current signal is in the set, then it has been bought
         # if not, it has not been bought
-        
-
+    
         current_signal_id = current_signal_dict["Mid"]
-        has_been_bought = (current_signal_id in self.buys_set)
+        has_been_bought = self.last_entry_signal_id == current_signal_id
 
         # check if the signal has not been sold before
         new_sell_signal = (self.last_exit_signal_id != current_signal_id)
 
         if (new_sell_signal and has_been_bought):
             self.last_exit_signal_id = current_signal_id
-            # add the current signal to the set of sold signals
-            self.sells_set.add(current_signal_id)
+
+            # remove the last item from open_trades and append to closed_trades
+            last_trade = self.open_trades.pop()
+            last_trade.exit_index = sell_index
+            self.closed_trades.append(last_trade)
 
             return 1
         # pass since others will be pass as well
