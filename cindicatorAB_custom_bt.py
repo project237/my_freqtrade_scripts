@@ -8,15 +8,19 @@ Some text
 """
 
 
-## --- Do not remove these libs ---
-from ctypes.wintypes import BOOL
-from freqtrade.strategy import IStrategy, merge_informative_pair
-from typing import Dict, List
-from functools import reduce
+## --- !! UNCOMMENT ONLY IN CASE OF ERROR ---
+# from ctypes.wintypes import BOOL
+# from freqtrade.strategy import IStrategy, merge_informative_pair
+# from functools import reduce
 
 # my imports / un-imports here
+from typing import Dict, List
 import pandas as pd
 import arrow
+from tqdm import tqdm
+# launching tdqm pandas methods
+tqdm.pandas(desc="my bar!")
+
 # from pandas import pd.DataFrame
 ## --------------------------------
 
@@ -33,7 +37,6 @@ def effective_price(current_price):
     returns the effective buy price, based on the current price
     """
     return current_price * my_params["trade_buffer"]
-
 
 def first_is_recent_or_eq(ts1, ts2, use_arrow=True):
         """
@@ -61,7 +64,7 @@ def return_current_signal_as_dict(signals_df_C, candle_T, high, low):
 
 
         index_earlier = []
-        # goes from eraliest to latest, 
+        # goes from earliest to latest, 
         for index, row in signals_df_C.iterrows():
             # if the signal is earlier or eq to the candle timestamp
             if first_is_recent_or_eq(candle_T, row["M_dt"], use_arrow=False):
@@ -95,7 +98,8 @@ class trade():
     Initialized with the signal object of the signal the trade was opened upon
     Trade status will be kept by class bt()
     """
-    def __init__(self, signal, candle_index):
+    def __init__(self, signal, candle_index, my_params):
+        self.my_params = my_params
         self.entry_index     = candle_index
         self.signal          = signal
         self.signal_id       = signal["Mid"]
@@ -146,7 +150,6 @@ class trade():
         # make sure if one of the conditions have been met 
         assert self.is_win is not None, "is_win is None"
 
-
 class bt():
     """
     This is our custom backtest class, this needs to be initialized inside the strategy class | 2022-07-06 20:49
@@ -187,9 +190,8 @@ class bt():
         else:
             return 0
 
-    # todo - complete win or loss, preferably from populate_sell_trend
     # def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
-    def is_actual_sell(self, current_signal_dict,  is_above_exit: bool):
+    def is_actual_sell(self, row: Dict) -> bool:
         """
         Called by populate_sell_trend whenever the nominal selling condition holds. 
         If the nominal sell condition is produced by a  new signal (and not for another that has already been sold)
@@ -198,7 +200,20 @@ class bt():
         # check if the signal has been bought before
         # we check the set of bought signals, if the current signal is in the set, then it has been bought
         # if not, it has not been bought
-    
+
+        # todo - make sure these are accesed correctly
+        sell_index = row.name
+        current_signal_dict = row.signal
+
+        # 2 is for high and 3 is for low
+        is_above_exit = None
+        if row.above >= row.loc[:,2] and row.above <= row.loc[:,3]:
+            is_above_exit = True
+        elif row.below >= row.loc[:,2] and row.below <= row.loc[:,3]:
+            is_above_exit = False
+        else:
+            assert is_above_exit is not None, "is_above_exit is None"
+
         current_signal_id = current_signal_dict["Mid"]
         has_been_bought = self.last_entry_signal_id == current_signal_id
 
@@ -210,7 +225,7 @@ class bt():
 
             # remove the last item from open_trades and append to closed_trades
             last_trade = self.open_trades.pop()
-            last_trade.set_exit_attributes(sell_index, is_above_exit)
+            last_trade.set_exit_attributes(sell_index, sell_index, is_above_exit)
             self.closed_trades.append(last_trade)
 
             return 1
@@ -218,13 +233,31 @@ class bt():
         else:
             return 0
 
-class cindicatorAB_longshort(IStrategy):
+# class cindicatorAB_longshort(IStrategy):
+class backtest():
     # So all the methods below are called only once per backtest and each time during the bot loop for 
     # live trading and dry run modes
     # keep this in mind..
 
-    # initialize the custom bt class
-    bt_obj = bt()
+    def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
+        self.signal_file = signal_file #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json" 
+        self.ticker_file = ticker_file #"/home/u237/projects/backtests/cindicator-bt1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
+        self.my_params = my_params
+        self.bt = bt()
+        # we import our cindictor AB sorted df here for use in populate_indicators, also the ticker df
+        self.signals = pd.read_json(signal_file)
+        self.ticker_df = pd.read_json(ticker_file)
+
+        # filter signals df for only our TICKER and those with indicator greater than min_indicator 
+        self.signal_df_indicator_filtered = self.signals.loc[((self.signals.ticker == "ZEC/USD") & ~(self.signals.indicator.between(my_params["max_indicator"], my_params["min_indicator"], inclusive='neither'))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
+        self.signal_df = self.signal_df_indicator_filtered.copy()
+    
+    def run_bactest(self):
+        """
+        TODO - 
+        Will be populated with sequence of correct method calls
+        after testing the class from a main function
+        """
 
     # An informative dictionary mapping ticker df column to their meanings - 2022-06-30 21:07
     ticker_df_column_ref = {
@@ -235,88 +268,23 @@ class cindicatorAB_longshort(IStrategy):
         "close"    : 4,
         "volume"   : 5
     }
-    
-    signal_file = "/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json"
 
-    # we import our cindictor AB sorted df here for use in populate_indicators
-    signals = pd.read_json(signal_file)
-
-    # filter signals df for only our TICKER and those with indicator greater than min_indicator 
-    signal_df_indicator_filtered = signals.loc[((signals.ticker == "ZEC/USD") & ~(signals.indicator.between(my_params["min_indicator"], my_params["max_indicator"]))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
-    signal_df = signal_df_indicator_filtered.copy()
-
-    ## Minimal ROI designed for the strategy.
-    ## This attribute will be overridden if the config file contains "minimal_roi"
-    minimal_roi = {
-        "60":  0.01,
-        "30":  0.03,
-        "20":  0.04,
-         "0":  0.05
-    }
-
-    ## Optimal stoploss designed for the strategy
-    ## This attribute will be overridden if the config file contains "stoploss"
-    # !! leaving this ratio well below what the exit signal should be doing,
-    # !! in effect, we're not using this
-    stoploss = -0.25
-
-    ## Optimal timeframe for the strategy
-    timeframe = '1h'
-
-    ## trailing stoploss
-    trailing_stop                 = False
-    trailing_stop_positive        = 0.02
-    trailing_stop_positive_offset = 0.04
-
-    ## run "populate_indicators" only for new candle
-    ta_on_candle = False
-
-    ## Experimental settings (configuration will overide these if set)
-    use_exit_signal            = True
-    ignore_roi_if_entry_signal = True
-
-
-    ## Optional order type mapping
-    # !! leave these as is since these don't affect the bt
-    order_types = {
-        'buy'                 : 'limit',
-        'sell'                : 'limit',
-        'stoploss'            : 'market',
-        'stoploss_on_exchange': False
-    }
-
-    # |*|
-    def informative_pairs(self):
-        """
-        Define additional, informative pair/interval combinations to be cached from the exchange.
-        These pair/interval combinations are non-tradeable, unless they are part
-        of the whitelist as well.
-        For more information, please consult the documentation
-        :return: List of tuples in the format (pair, interval)
-            Sample: return [("ETH/USDT", "5m"),
-                            ("BTC/USDT", "15m"),
-                            ]
-        """
-        return []
-
-    def populate_indicators(self, dataframe: pd.DataFrame ) -> pd.DataFrame:
+    def populate_indicators(self) -> pd.DataFrame:
         """
         !! row.loc[0] - the candle timestamp
         """
-        dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0], row.loc[2], row.loc[3]), axis='columns')
-        # dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0]), axis='columns')
-        dataframe["base"]         = dataframe.apply(lambda row: row["signal"].get("base"), axis="columns")
-        # todo - call turns these to effective prices
-        dataframe["above"]        = dataframe.apply(lambda row: row["signal"].get("above"), axis="columns")
-        dataframe["below"]        = dataframe.apply(lambda row: row["signal"].get("below"), axis="columns")
-        dataframe["indicator"]    = dataframe.apply(lambda row: row["signal"].get("indicator"), axis="columns")
-        dataframe["M_dt"]         = dataframe.apply(lambda row: row["signal"].get("M_dt"), axis="columns")
-        dataframe["Mid"]          = dataframe.apply(lambda row: row["signal"].get("Mid"), axis="columns")
-
-        return dataframe
+        # ticker_df["signal"]       = ticker_df.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0]), axis='columns')
+        self.ticker_df["signal"]       = self.ticker_df.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0], row.loc[2], row.loc[3]), axis='columns')
+        self.ticker_df["base"]         = self.ticker_df.apply(lambda row: row["signal"].get("base"), axis="columns")
+        # self.ticker_df["base"]         = self.ticker_df.apply(lambda row: effective_price(row["signal"].get("base")), axis="columns")
+        self.ticker_df["above"]        = self.ticker_df.apply(lambda row: effective_price(row["signal"].get("above")), axis="columns")
+        self.ticker_df["below"]        = self.ticker_df.apply(lambda row: effective_price(row["signal"].get("below")), axis="columns")
+        self.ticker_df["indicator"]    = self.ticker_df.apply(lambda row: row["signal"].get("indicator"), axis="columns")
+        self.ticker_df["M_dt"]         = self.ticker_df.apply(lambda row: row["signal"].get("M_dt"), axis="columns")
+        self.ticker_df["Mid"]          = self.ticker_df.apply(lambda row: row["signal"].get("Mid"), axis="columns")
 
     # |*|
-    def populate_buy_trend(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+    def populate_buy_trend(self) -> pd.DataFrame:
         """
         Based on TA indicators, populates the buy signal for the given dataframe
         :param dataframe: pd.DataFrame
@@ -325,101 +293,79 @@ class cindicatorAB_longshort(IStrategy):
 
         # returns the signals that might be a buy, we will then iterate over this subset 
         # to see which ones are actual buys based on "is_actual_buy" 
-        df_copy = dataframe.assign(buy = 0)
+        df_copy = self.ticker_df
+        df_copy.assign(buy = 0)
 
         # FILTER FOR THE NOMINAL BUY CONDITION
         # we esentially buy whenever the (base price + trade_buffer) is within low price and high price 
         # (this will go to hyperopt later) 
-        # todo - remove unnecessary computation here
         df_nominal_buy = df_copy.loc[
-            (df_copy.loc[:,3] <= (df_copy['base'] * my_params["trade_buffer"])) & \
-            ( (df_copy['base'] * my_params["trade_buffer"]) <= df_copy.loc[:,2])
+            (df_copy['base']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='both')
         ]
 
         df_copy["buy"] = df_nominal_buy.progress_apply(lambda row: self.bt.is_actual_buy(row.signal), axis='columns')
 
-        return df_copy
-
-
     # |*|
-    def populate_sell_trend_orig(self, dataframe: pd.DataFrame ) -> pd.DataFrame:
+    def populate_sell_trend_orig(self) -> pd.DataFrame:
         """
         !! Deprecated, use populate_sell_trend instead | 2022-07-15 14:58
-        Based on TA indicators, populates the sell signal for the given dataframe
+        Based on TA indicators, populates the sell signal for the given ticker_df
         !! Assumes both above and below price cannot be wihtin the same candle
-        :param dataframe: pd.DataFrame
+        :param ticker_df: pd.DataFrame
         :return: pd.DataFrame with buy column
         """
 
-        # add a new column "sell" to dataframe, initialize it to 0
-        dataframe = dataframe.assign(sell = 0)
+        # add a new column "sell" to ticker_df, initialize it to 0
+        ticker_df = ticker_df.assign(sell = 0)
 
         # filter for the nominal sell condition
         # we sell whenever the either above or below price is within the low and high of the candle
-        df_nominal_sell = dataframe.loc[
-            (dataframe['above'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2]) |
-            (dataframe['below'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
+        df_nominal_sell = ticker_df.loc[
+            (ticker_df['above'] * my_params["trade_buffer"]).between(ticker_df.loc[:,3], ticker_df.loc[:,2], inclusive='neither') |
+            (ticker_df['below'] * my_params["trade_buffer"]).between(ticker_df.loc[:,3], ticker_df.loc[:,2], inclusive='neither')
         ]
         
-        dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt.is_actual_sell(row.Mid), axis='columns')
+        ticker_df["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt.is_actual_sell(row.Mid), axis='columns')
 
-        return dataframe
+        return ticker_df
 
-    def populate_sell_trend(self, dataframe: pd.DataFrame ) -> pd.DataFrame:
+    def populate_sell_trend(self) -> pd.DataFrame:
         """
-        Based on TA indicators, populates the sell signal for the given dataframe
+        Based on TA indicators, populates the sell signal on the self.ticker_df 
         !! Assumes both above and below price cannot be wihtin the same candle
-        :param dataframe: pd.DataFrame
         :return: pd.DataFrame with buy column
         """
+        # !! this line is important
+        dataframe = self.ticker_df
 
         # add a new column "sell" to dataframe, initialize it to 0
-        dataframe = dataframe.assign(sell = 0)
+        # dataframe = dataframe.assign(sell = 0)
+        dataframe.assign(sell = 0)
 
         df_nominal_above = dataframe.loc[
-            (dataframe['above'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
+            (dataframe['above'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2], inclusive='neither')
         ]
         df_nominal_below = dataframe.loc[
-            (dataframe['below'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
+            (dataframe['below'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2], inclusive='neither')
         ]
         #     def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
 
         dataframe["sell"] = df_nominal_above.progress_apply(lambda row: self.bt.is_actual_sell(current_signal_dict=row.signal, sell_index=row.name, is_above_exit=1), axis='columns')
         dataframe["sell"] = df_nominal_below.progress_apply(lambda row: self.bt.is_actual_sell(current_signal_dict=row.signal, sell_index=row.name, is_above_exit=0), axis='columns')
-        return dataframe
-
-    def number_of_signal_never_bought(self) -> int:
-        """
-        Returns the number of signals that have never been bought
-        :return: int
-        """
-        # todo - test this function
-        # get the set of all signals
-        all_signals = set(self.signal_df.Mid)
-        # get the set of all bought signals
-        bought_signals = self.bt.buys_set
-        # get the set of all signals that have never been bought
-        never_bought_signals = all_signals - bought_signals
-        # return the number of signals that have never been bought
-        return len(never_bought_signals)
-
-    def number_of_signal_never_sold(self) -> int:
-        """
-        gets the length of difference between self.bt.sells_set and self.bt.buys_set
-        :return: int
-        """
-        # todo - test this function
-        return len(self.bt.buys_set - self.bt.sells_set)
 
     def display_results(self):
         min_indicator = my_params["min_indicator"]
+        max_indicator = my_params["max_indicator"]
+        tot_filtered = len(self.signal_df_indicator_filtered)
+        tot_sells = len(self.bt.sells_set)
+        tot_bought_never_sold = len(self.bt.sells_set)
+        tot_never_bought = tot_filtered - (tot_sells + tot_bought_never_sold)
 
         print("======THE BACKTEST OF IS OVER======")
-        print(f"The number of signals above {min_indicator} is {len(self.signal_df_indicator_filtered)}")
-        # todo - sort the rest of these out 
-        print(f"The number of total buys and sells is {len(df_sells)}")
-        print(f"The number of signals never bought is {number_of_signal_never_bought(signal_df_indicator_filtered, bt1)}")
-        print(f"The number of signals never sold is {number_of_signal_never_sold(bt1)}")
+        print(f"The number of signals outside range ({min_indicator}, {max_indicator}) is {tot_filtered}")
+        print(f"The number of total sells is {tot_sells}")
+        print(f"The number of signals never sold is {tot_bought_never_sold}") # all signals that were sold were popped from here
+        print(f"The number of signals never bought is {tot_never_bought}")
         print("=====================================")
 
 
