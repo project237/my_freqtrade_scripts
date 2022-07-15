@@ -114,22 +114,42 @@ class trade():
 
         # these will be filled upon exit
         self.exit_index     = None
-        self.is_win    = None
-        self.exit_price = None
-        self.profit_percent  = None
+        self.is_win         = None
+        # self.is_above       = None
+        # self.is_win         = (True if ((self.is_above and self.type == "L") or (not self.is_above and self.type == "S")) else False)
+        self.exit_price     = None
+        self.profit_percent = None
         
-        if (self.is_win and self.type == "L") or (not self.is_win and self.type == "S"):
-            self.exit_price = self.effective_above
+    def set_exit_attributes(self, exit_index, is_above: bool) -> None:
+        """
+        Sets the exit attributes of the trade   
+        """
+        self.exit_index    = exit_index
 
-            # todo - fix this
+        if (is_above and self.type == "L"):
+            self.is_win = True
+            self.exit_price = self.effective_above
             self.profit_percent = (self.exit_price - self.effective_entry) / self.effective_entry
-        else:
+        elif (not is_above and self.type == "S"):
+            self.is_win = True
             self.exit_price = self.effective_below
+            self.profit_percent = (self.effective_entry - self.exit_price) / self.effective_entry
+        elif (is_above and self.type == "S"):
+            self.is_win = False
+            self.exit_price = self.effective_above
+            self.profit_percent = (self.effective_entry - self.exit_price) / self.effective_entry
+        elif (not is_above and self.type == "L"):
+            self.is_win = False
+            self.exit_price = self.effective_below
+            self.profit_percent = (self.exit_price - self.effective_entry) / self.effective_entry
+
+        # make sure if one of the conditions have been met 
+        assert self.is_win is not None, "is_win is None"
 
 
 class bt():
     """
-    This is our custom bactest class, this needs to be initialized inside the strategy class | 2022-07-06 20:49
+    This is our custom backtest class, this needs to be initialized inside the strategy class | 2022-07-06 20:49
     """
 
     def __init__(self) -> None:
@@ -168,7 +188,8 @@ class bt():
             return 0
 
     # todo - complete win or loss, preferably from populate_sell_trend
-    def is_actual_sell(self, current_signal_dict, sell_index, win_or_loss: bool):
+    # def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
+    def is_actual_sell(self, current_signal_dict,  is_above_exit: bool):
         """
         Called by populate_sell_trend whenever the nominal selling condition holds. 
         If the nominal sell condition is produced by a  new signal (and not for another that has already been sold)
@@ -189,7 +210,7 @@ class bt():
 
             # remove the last item from open_trades and append to closed_trades
             last_trade = self.open_trades.pop()
-            last_trade.exit_index = sell_index
+            last_trade.set_exit_attributes(sell_index, is_above_exit)
             self.closed_trades.append(last_trade)
 
             return 1
@@ -285,6 +306,7 @@ class cindicatorAB_longshort(IStrategy):
         dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0], row.loc[2], row.loc[3]), axis='columns')
         # dataframe["signal"]       = dataframe.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0]), axis='columns')
         dataframe["base"]         = dataframe.apply(lambda row: row["signal"].get("base"), axis="columns")
+        # todo - call turns these to effective prices
         dataframe["above"]        = dataframe.apply(lambda row: row["signal"].get("above"), axis="columns")
         dataframe["below"]        = dataframe.apply(lambda row: row["signal"].get("below"), axis="columns")
         dataframe["indicator"]    = dataframe.apply(lambda row: row["signal"].get("indicator"), axis="columns")
@@ -320,9 +342,11 @@ class cindicatorAB_longshort(IStrategy):
 
 
     # |*|
-    def populate_sell_trend(self, dataframe: pd.DataFrame ) -> pd.DataFrame:
+    def populate_sell_trend_orig(self, dataframe: pd.DataFrame ) -> pd.DataFrame:
         """
+        !! Deprecated, use populate_sell_trend instead | 2022-07-15 14:58
         Based on TA indicators, populates the sell signal for the given dataframe
+        !! Assumes both above and below price cannot be wihtin the same candle
         :param dataframe: pd.DataFrame
         :return: pd.DataFrame with buy column
         """
@@ -338,6 +362,30 @@ class cindicatorAB_longshort(IStrategy):
         ]
         
         dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt.is_actual_sell(row.Mid), axis='columns')
+
+        return dataframe
+
+    def populate_sell_trend(self, dataframe: pd.DataFrame ) -> pd.DataFrame:
+        """
+        Based on TA indicators, populates the sell signal for the given dataframe
+        !! Assumes both above and below price cannot be wihtin the same candle
+        :param dataframe: pd.DataFrame
+        :return: pd.DataFrame with buy column
+        """
+
+        # add a new column "sell" to dataframe, initialize it to 0
+        dataframe = dataframe.assign(sell = 0)
+
+        df_nominal_above = dataframe.loc[
+            (dataframe['above'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
+        ]
+        df_nominal_below = dataframe.loc[
+            (dataframe['below'] * my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2])
+        ]
+        #     def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
+
+        dataframe["sell"] = df_nominal_above.progress_apply(lambda row: self.bt.is_actual_sell(current_signal_dict=row.signal, sell_index=row.name, is_above_exit=1), axis='columns')
+        dataframe["sell"] = df_nominal_below.progress_apply(lambda row: self.bt.is_actual_sell(current_signal_dict=row.signal, sell_index=row.name, is_above_exit=0), axis='columns')
         return dataframe
 
     def number_of_signal_never_bought(self) -> int:
