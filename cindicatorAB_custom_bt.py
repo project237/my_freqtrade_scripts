@@ -62,19 +62,19 @@ def return_current_signal_as_dict(signals_df_C, candle_T, high, low):
         # 3- If that one is not the earliest signal, delete from df.  
         # This way we'll always be assigning the data from the last signal, and avoid unnecessary comparisons 
 
-
+        # start with empty dict, as we progress, we'll check if the length is 1 and drop other entries other than the latest
         index_earlier = []
         # goes from earliest to latest, 
         for index, row in signals_df_C.iterrows():
             # if the signal is earlier or eq to the candle timestamp
             if first_is_recent_or_eq(candle_T, row["M_dt"], use_arrow=False):
-                # todo - test this
                 # drop signal from df if high and low is not between last_dict["above"] and last_dict["below"]
-                if (high >= effective_price(row["above"]) or low <= effective_price(row["below"])):  # if not in range
-                    signals_df_C.drop(index, inplace=True) 
-                    continue
+                # todo (?) - this block is faulty, add a new column to df that check for this condition where there is a new signal
+                # if (high >= row["above"]) or (low <= row["below"]):  # if not in range
+                #     signals_df_C.drop(row.name, inplace=True) 
+                #     continue
                 index_earlier.append(index)
-            # if the signal is later than the candle timestamp
+            # if the signal is later than the candle timestamp, we've reached the future, so stop the loop
             else: 
                 break
 
@@ -258,6 +258,7 @@ class backtest():
         Will be populated with sequence of correct method calls
         after testing the class from a main function
         """
+        # todo - apply effective_price() to necessary column in the signal df, remove applications of effective_price() in the rest of the code
 
     # An informative dictionary mapping ticker df column to their meanings - 2022-06-30 21:07
     ticker_df_column_ref = {
