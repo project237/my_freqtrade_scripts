@@ -164,6 +164,62 @@ class bt_helper():
         self.open_trades          = [] # at the end of bt_helper, we'll check this to see if any trades were left open
         self.closed_trades        = [] # at the end of bt_helper, will be turned into a dataframe to give us the bt_helper results
 
+    def is_actual_buy_sell(self, row : Dict) -> bool:
+        """
+        Combined version of is_actual_buy and is_actual_sell | 2022-07-19 18:59
+        Returns 1 if signal is a buy, 2 if a sell, 0 if neither
+        """
+        current_signal_dict = row.signal
+        ticker_index         = row.name
+        current_signal_id   = current_signal_dict["Mid"]
+
+        # FOR BUYS - check if the signal is a new one
+        # in case new signal, process for buy conditions
+        is_new_signal = (self.last_entry_signal_id != current_signal_id)
+        if is_new_signal:
+
+            self.last_entry_signal_id = current_signal_id
+            # add the current signal to the set of bought signals
+            self.buys_set.add(current_signal_id)
+
+            # create the trade object with the current signal
+            trade_obj = trade(current_signal_dict, ticker_index, self.my_params)
+            self.open_trades.append(trade_obj)
+
+            return 1
+        # pass since others will be pass as well
+
+        # might be a sell signal
+        else:
+            # 2 is for high and 3 is for low
+            is_above_exit = None
+            if row.above <= row.loc[2] and row.above >= row.loc[3]:
+                is_above_exit = True
+            elif row.below <= row.loc[2] and row.below >= row.loc[3]:
+                is_above_exit = False
+            else:
+                assert is_above_exit is None, "is_above_exit is None"
+        
+            # check if it is the last bought signal
+            has_been_bought = (self.last_entry_signal_id == current_signal_id)
+
+            # check if the signal has not been sold before
+            new_sell_signal = (self.last_exit_signal_id != current_signal_id)
+
+            if (new_sell_signal and has_been_bought):
+                self.last_exit_signal_id = current_signal_id
+
+                # remove the last item from open_trades and append to closed_trades
+                last_trade = self.open_trades.pop()
+                last_trade.set_exit_attributes(ticker_index, is_above_exit)
+                self.closed_trades.append(last_trade)
+
+                return 2
+            # pass since others will be pass as well
+            else:
+                return 0
+
+
     def is_actual_buy(self, row : Dict) -> bool:
         """
         Called by populate_buy_trend whenever the nominal buying condition holds. 
@@ -202,7 +258,6 @@ class bt_helper():
         # we check the set of bought signals, if the current signal is in the set, then it has been bought
         # if not, it has not been bought
 
-        # todo - make sure these are accesed correctly
         sell_index = row.name
         current_signal_dict = row.signal
 
@@ -290,6 +345,32 @@ class backtest():
         self.ticker_df["Mid"]          = self.ticker_df.apply(lambda row: row["signal"].get("Mid"), axis="columns")
 
     # |*|
+    def populate_buy_sell(self) -> pd.DataFrame:
+        """
+        Based on TA indicators, populates the buy signal for the given dataframe
+        :param dataframe: pd.DataFrame
+        :return: pd.DataFrame with buy column
+        """
+
+
+        # !! buy_sell start
+        # returns the signals that might be a buy, we will then iterate over this subset 
+        # to see which ones are actual buys based on "is_actual_buy" 
+        df_copy = self.ticker_df
+        df_copy.assign(buy1_or_sell2 = 0)
+
+        # FILTER FOR THE NOMINAL BUY CONDITION
+        # we esentially buy whenever the (base price + trade_buffer) is within low price and high price 
+        # (this will go to hyperopt later) 
+        df_nominal_buy_sell = df_copy.loc[
+            (df_copy['base']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither') |
+            (df_copy['above'] * self.my_params["trade_buffer"]).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither') |
+            (df_copy['below'] * self.my_params["trade_buffer"]).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither')
+        ]
+
+        df_copy["buy1_or_sell2"] = df_nominal_buy_sell.progress_apply(lambda row: self.bt_helper.is_actual_buy_sell(row), axis='columns')
+        # dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt_helper.is_actual_sell(row), axis='columns')
+    
     def populate_buy_trend(self) -> pd.DataFrame:
         """
         Based on TA indicators, populates the buy signal for the given dataframe
