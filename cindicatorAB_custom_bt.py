@@ -17,6 +17,7 @@ Some text
 from typing import Dict, List
 import pandas as pd
 import arrow
+import numpy as np
 from tqdm import tqdm
 # launching tdqm pandas methods
 tqdm.pandas(desc="my bar!")
@@ -115,7 +116,6 @@ class trade():
              self.type        = "S"
         assert self.type is not None, "long / short type is None"
 
-
         # these will be filled upon exit
         self.exit_index     = None
         self.is_win         = None
@@ -150,6 +150,18 @@ class trade():
         # make sure if one of the conditions have been met 
         assert self.is_win is not None, "is_win is None"
 
+class step():
+    """
+    Stores step objects the will be used by class bt_helper for creating final bactest results 
+    Could have been a dict but you know, whatever. | 2022-07-24 19:31
+    """
+    def __init__(self, cutoff, trades, wins, Rwin, cum_ret) -> None:
+        self.cutoff  = cutoff
+        self.trades  = trades
+        self.wins    = wins
+        self.Rwin    = Rwin
+        self.cum_ret = cum_ret
+
 class bt_helper():
     """
     This is our custom backtest class, this needs to be initialized inside the strategy class | 2022-07-06 20:49
@@ -163,6 +175,10 @@ class bt_helper():
         self.sells_set            = set()  # these will be deprecated
         self.open_trades          = [] # at the end of bt_helper, we'll check this to see if any trades were left open
         self.closed_trades        = [] # at the end of bt_helper, will be turned into a dataframe to give us the bt_helper results
+        self.df_closed            = None # will store the df that is turned from self.closed_trades where we set the bactest is over
+        self.df_long_steps        = None
+        self.df_short_steps       = None
+
 
     def is_actual_buy_sell(self, row : Dict) -> bool:
         """
@@ -219,79 +235,85 @@ class bt_helper():
             else:
                 return 0
 
-
-    def is_actual_buy(self, row : Dict) -> bool:
+    def set_full_exit_df(self):
         """
-        Called by populate_buy_trend whenever the nominal buying condition holds. 
-        If the nominal buy condition is produced by a  new signal (and not for another that has already been bought)
-        returns true after updating last_entry_signal_id to current signal, otherwise returns false. 
+        Assings df_long_steps and df_short_steps which contain the sliced indicator step objects 
+        for both long and short trades, so that the optimal cobination of long and short indicators can be analyzed | 2022-07-24 19:30
+        The chosen columns for the df are given by cols_list
         """
-        current_signal_dict = row.signal
-        entry_index         = row.name
-        current_signal_id   = current_signal_dict["Mid"]
+        cols_list = ["type", "indicator", "is_win", "profit_percent", "signal_id"]
 
-        is_new_signal = (self.last_entry_signal_id != current_signal_id)
+        # turns self.closed_trades (a list) into a pandas df
+        self.df_closed = pd.DataFrame([vars(s) for s in self.closed_trades], columns=cols_list)
+        closed = self.df_closed
 
-        if is_new_signal:
+        # loop for longs
+        long_steps = []
+        long_steps_loop = np.arange(92, 80, -0.5)
 
-            self.last_entry_signal_id = current_signal_id
-            # add the current signal to the set of bought signals
-            self.buys_set.add(current_signal_id)
+        for i, s in enumerate(long_steps_loop):
+            # select all trades in df_closed with indicator above i
+            this_slice = closed[(closed.indicator >= s)]
 
-            # create the trade object with the current signal
-            trade_obj = trade(current_signal_dict, entry_index, self.my_params)
-            self.open_trades.append(trade_obj)
+            # calculate # of trades (number of rows)
+            num_of_trades = this_slice.shape[0]
 
-            return 1
-        # pass since others will be pass as well
-        else:
-            return 0
+            # if above is 0 assign 0 to wins, r_wins, cumret
+            if num_of_trades == 0:
+                wins = 0
+                r_wins = 0
+                cumret = 0
+            else:
+                # calculate # of wins 
+                wins = this_slice[this_slice.is_win == True]
 
-    # def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
-    def is_actual_sell(self, row: Dict) -> bool:
-        """
-        Called by populate_sell_trend whenever the nominal selling condition holds. 
-        If the nominal sell condition is produced by a  new signal (and not for another that has already been sold)
-        returns true after updating last_exit_signal_id to current signal, otherwise returns false. 
-        """
-        # check if the signal has been bought before
-        # we check the set of bought signals, if the current signal is in the set, then it has been bought
-        # if not, it has not been bought
+                # calculate wins / total
+                r_wins = wins / num_of_trades
 
-        sell_index = row.name
-        current_signal_dict = row.signal
+                # calculate cumulative profit
+                # todo - make sure it is the correct form
+                cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                cumret = cum_rets[-1]
 
-        # 2 is for high and 3 is for low
-        is_above_exit = None
-        if row.above <= row.loc[2] and row.above >= row.loc[3]:
-            is_above_exit = True
-        elif row.below <= row.loc[2] and row.below >= row.loc[3]:
-            is_above_exit = False
-        else:
-            assert is_above_exit is None, "is_above_exit is None"
+            # add the step to the list of steps
+            long_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
-        current_signal_id = current_signal_dict["Mid"]
+        # create a df from steps and assign to self.df_long_steps
+        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps], columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
 
-        # !! the reeason we produce only 1 sell signal for the entire df is that at this value last_entry_signal_id is always 
-        # !! giving us the last entry signal in the entire sequence. in other words, populating buy and sell column needs to be done 
-        # !! within the same loop. | 2022-07-17 19:35
-        has_been_bought = (self.last_entry_signal_id == current_signal_id)
+        # loop for shorts
+        short_steps = []
+        short_steps_loop = np.arange(8, 20, 0.5)
 
-        # check if the signal has not been sold before
-        new_sell_signal = (self.last_exit_signal_id != current_signal_id)
+        for i, s in enumerate(short_steps_loop):
+            # select all trades in df_closed with indicator below i
+            this_slice = closed[(closed.indicator <= s)]
 
-        if (new_sell_signal and has_been_bought):
-            self.last_exit_signal_id = current_signal_id
+            # calculate # of trades (number of rows)
+            num_of_trades = this_slice.shape[0]
 
-            # remove the last item from open_trades and append to closed_trades
-            last_trade = self.open_trades.pop()
-            last_trade.set_exit_attributes(sell_index, is_above_exit)
-            self.closed_trades.append(last_trade)
+            # if num_of_trades is 0 assign 0 to wins, r_wins, cumret
+            if num_of_trades == 0:
+                wins = 0
+                r_wins = 0
+                cumret = 0
+            else:
+                # calculate # of wins 
+                wins = this_slice[this_slice.is_win == True]
 
-            return 1
-        # pass since others will be pass as well
-        else:
-            return 0
+                # calculate wins / total
+                r_wins = wins / num_of_trades
+
+                # calculate cumulative profit
+                # todo - make sure it is the correct form
+                cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                cumret = cum_rets[-1]
+
+            # add the step to the list of steps
+            short_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
+
+        # create a df from steps and assign to self.df_long_steps
+        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps], columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
 
 # class cindicatorAB_longshort(IStrategy):
 class backtest():
@@ -442,20 +464,22 @@ class backtest():
         # ]
         # #     def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
 
-
     def display_results(self):
         min_indicator = self.my_params["min_indicator"]
         max_indicator = self.my_params["max_indicator"]
         tot_filtered = len(self.signal_df_indicator_filtered)
-        tot_sells = len(self.bt_helper.sells_set)
-        tot_bought_never_sold = len(self.bt_helper.sells_set)
+        tot_sells = len(self.bt_helper.closed_trades)
+        tot_bought_never_sold = len(self.bt_helper.open_trades)
         tot_never_bought = tot_filtered - (tot_sells + tot_bought_never_sold)
 
+        # call set_full_exit_df on the bt_helper
+        self.bt_helper.set_full_exit_df()
+        
         print("======THE BACKTEST OF IS OVER======")
-        print(f"The number of signals outside range ({min_indicator}, {max_indicator}) is {tot_filtered}")
-        print(f"The number of total sells is {tot_sells}")
-        print(f"The number of signals never sold is {tot_bought_never_sold}") # all signals that were sold were popped from here
-        print(f"The number of signals never bought is {tot_never_bought}")
+        print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {tot_filtered}")
+        print(f"The number of total sells           - {tot_sells}")
+        print(f"The number of signals never sold    - {tot_bought_never_sold}") # all signals that were sold were popped from here
+        print(f"The number of signals never bought  - {tot_never_bought}")
         print("=====================================")
 
 
