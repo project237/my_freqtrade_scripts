@@ -19,6 +19,7 @@ import pandas as pd
 import arrow
 import numpy as np
 from tqdm import tqdm
+from pprint import pprint
 # launching tdqm pandas methods
 tqdm.pandas(desc="my bar!")
 
@@ -178,6 +179,8 @@ class bt_helper():
         self.df_closed            = None # will store the df that is turned from self.closed_trades where we set the bactest is over
         self.df_long_steps        = None
         self.df_short_steps       = None
+        self.best_indicators      = None
+        self.best_indicators_df   = None
 
 
     def is_actual_buy_sell(self, row : Dict) -> bool:
@@ -249,7 +252,7 @@ class bt_helper():
 
         # loop for longs
         long_steps = []
-        long_steps_loop = np.arange(92, 80, -0.5)
+        long_steps_loop = np.arange(92, 79.5, -0.5)
 
         for i, s in enumerate(long_steps_loop):
             # select all trades in df_closed with indicator above i
@@ -258,14 +261,17 @@ class bt_helper():
             # calculate # of trades (number of rows)
             num_of_trades = this_slice.shape[0]
 
+            wins   = None
+            r_wins = None
+            cumret = None
             # if above is 0 assign 0 to wins, r_wins, cumret
             if num_of_trades == 0:
-                wins = 0
+                wins   = 0
                 r_wins = 0
                 cumret = 0
-            else:
+            else: 
                 # calculate # of wins 
-                wins = this_slice[this_slice.is_win == True]
+                wins = this_slice[this_slice.is_win == True].shape[0]
 
                 # calculate wins / total
                 r_wins = wins / num_of_trades
@@ -279,11 +285,11 @@ class bt_helper():
             long_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
         # create a df from steps and assign to self.df_long_steps
-        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps], columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
 
         # loop for shorts
         short_steps = []
-        short_steps_loop = np.arange(8, 20, 0.5)
+        short_steps_loop = np.arange(8, 20.5, 0.5)
 
         for i, s in enumerate(short_steps_loop):
             # select all trades in df_closed with indicator below i
@@ -292,6 +298,9 @@ class bt_helper():
             # calculate # of trades (number of rows)
             num_of_trades = this_slice.shape[0]
 
+            wins   = None
+            r_wins = None
+            cumret = None
             # if num_of_trades is 0 assign 0 to wins, r_wins, cumret
             if num_of_trades == 0:
                 wins = 0
@@ -299,7 +308,7 @@ class bt_helper():
                 cumret = 0
             else:
                 # calculate # of wins 
-                wins = this_slice[this_slice.is_win == True]
+                wins = this_slice[this_slice.is_win == True].shape[0]
 
                 # calculate wins / total
                 r_wins = wins / num_of_trades
@@ -313,7 +322,55 @@ class bt_helper():
             short_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
         # create a df from steps and assign to self.df_long_steps
-        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps], columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+
+        self.get_best_indicators()
+
+    def get_best_indicator(self, df_results, max_colname: str):
+        """
+        Returns column of the max_colname that needs to be maximized as a dictionary, if 
+        there are multiple such rows, returns the range of the max_colname
+        !! the reason we include this inside the class is for the sake of readability
+        """
+        # df_results = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
+        max_df     = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
+        # this will give us the values of the loosest indicator
+        ref_row = max_df.iloc[-1]
+        range = ref_row.cutoff
+        # range = None
+        # if max_df.shape[0] == 1:
+        #     # get value of the indicator column of df_results that has the maximum value of max_colname
+        #     range = ref_row.cutoff
+        # else:
+        #     # return a tuple of the min and max values of the indicator column of df_results
+        #     range = (max_df.loc[max_df.cutoff.idxmin()].cutoff, max_df.loc[max_df.cutoff.idxmax()].cutoff)
+        dict = {
+            "best_indicator": range,
+            "trades"        : ref_row.trades,
+            "wins"          : ref_row.wins,
+            "Rwin"          : ref_row.Rwin,
+            "cum_ret"       : ref_row.cum_ret
+        }
+        return dict
+
+    def get_best_indicators(self):
+        """
+        Returns a dict of 4 dictionaries for indicator rows that maximize Rwin and cumret in both df_long_steps and df_short_steps
+        Called by set_full_exit_df()
+        """
+        dict_long_rwin = self.get_best_indicator(self.df_long_steps, "Rwin")
+        dict_long_cumret = self.get_best_indicator(self.df_long_steps, "cum_ret")
+        dict_short_rwin = self.get_best_indicator(self.df_short_steps, "Rwin")
+        dict_short_cumret = self.get_best_indicator(self.df_short_steps, "cum_ret")
+
+        dict = {
+            "long_rwin" : dict_long_rwin,
+            "long_cumret" : dict_long_cumret,
+            "short_rwin" : dict_short_rwin,
+            "short_cumret" : dict_short_cumret
+        }
+        self.best_indicators = dict
+        self.best_indicators_df = pd.DataFrame(dict).T
 
 # class cindicatorAB_longshort(IStrategy):
 class backtest():
@@ -463,8 +520,11 @@ class backtest():
         #     (dataframe['below'] * self.my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2], inclusive='neither')
         # ]
         # #     def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
-
+    
     def display_results(self):
+        """
+        Displays the results of interest after setting the final attributes of self.bt_helper 
+        """
         min_indicator = self.my_params["min_indicator"]
         max_indicator = self.my_params["max_indicator"]
         tot_filtered = len(self.signal_df_indicator_filtered)
@@ -474,12 +534,17 @@ class backtest():
 
         # call set_full_exit_df on the bt_helper
         self.bt_helper.set_full_exit_df()
-        
+
         print("======THE BACKTEST OF IS OVER======")
+        print("The dict of params:")
+        # pprint(self.my_params, indent=4)
+        [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
         print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {tot_filtered}")
         print(f"The number of total sells           - {tot_sells}")
         print(f"The number of signals never sold    - {tot_bought_never_sold}") # all signals that were sold were popped from here
         print(f"The number of signals never bought  - {tot_never_bought}")
+        print( "\nThe df of top indicator values for shorts and longs:\n")
+        print(self.bt_helper.best_indicators_df.to_markdown()) 
         print("=====================================")
 
 
