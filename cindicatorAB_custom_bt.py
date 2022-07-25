@@ -535,7 +535,7 @@ class backtest():
         # call set_full_exit_df on the bt_helper
         self.bt_helper.set_full_exit_df()
 
-        print("======THE BACKTEST OF IS OVER======")
+        print("================================THE BACKTEST OF IS OVER================================")
         print("The dict of params:")
         # pprint(self.my_params, indent=4)
         [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
@@ -545,6 +545,6 @@ class backtest():
         print(f"The number of signals never bought  - {tot_never_bought}")
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
-        print("=====================================")
+        print("=======================================================================================")
 
 
