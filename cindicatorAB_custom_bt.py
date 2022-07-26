@@ -177,11 +177,11 @@ class bt_helper():
         self.open_trades          = [] # at the end of bt_helper, we'll check this to see if any trades were left open
         self.closed_trades        = [] # at the end of bt_helper, will be turned into a dataframe to give us the bt_helper results
         self.df_closed            = None # will store the df that is turned from self.closed_trades where we set the bactest is over
+        # "steps" is an alias for indicator values
         self.df_long_steps        = None
         self.df_short_steps       = None
         self.best_indicators      = None
         self.best_indicators_df   = None
-
 
     def is_actual_buy_sell(self, row : Dict) -> bool:
         """
@@ -189,7 +189,7 @@ class bt_helper():
         Returns 1 if signal is a buy, 2 if a sell, 0 if neither
         """
         current_signal_dict = row.signal
-        ticker_index         = row.name
+        ticker_index        = row.name
         current_signal_id   = current_signal_dict["Mid"]
 
         # FOR BUYS - check if the signal is a new one
@@ -237,6 +237,52 @@ class bt_helper():
             # pass since others will be pass as well
             else:
                 return 0
+
+    def get_best_indicator(self, df_results, max_colname: str):
+        """
+        Returns column of the max_colname that needs to be maximized as a dictionary, if 
+        there are multiple such rows, returns the range of the max_colname
+        !! the reason we include this inside the class is for the sake of readability
+        """
+        # df_results = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
+        max_df     = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
+        # this will give us the values of the loosest indicator
+        ref_row = max_df.iloc[-1]
+        range = ref_row.cutoff
+        # range = None
+        # if max_df.shape[0] == 1:
+        #     # get value of the indicator column of df_results that has the maximum value of max_colname
+        #     range = ref_row.cutoff
+        # else:
+        #     # return a tuple of the min and max values of the indicator column of df_results
+        #     range = (max_df.loc[max_df.cutoff.idxmin()].cutoff, max_df.loc[max_df.cutoff.idxmax()].cutoff)
+        dict = {
+            "best_indicator": range,
+            "trades"        : ref_row.trades,
+            "wins"          : ref_row.wins,
+            "Rwin"          : ref_row.Rwin,
+            "cum_ret"       : ref_row.cum_ret
+        }
+        return dict
+
+    def get_best_indicators(self):
+        """
+        Returns a dict of 4 dictionaries for indicator rows that maximize Rwin and cumret in both df_long_steps and df_short_steps
+        Called by set_full_exit_df()
+        """
+        dict_long_rwin = self.get_best_indicator(self.df_long_steps, "Rwin")
+        dict_long_cumret = self.get_best_indicator(self.df_long_steps, "cum_ret")
+        dict_short_rwin = self.get_best_indicator(self.df_short_steps, "Rwin")
+        dict_short_cumret = self.get_best_indicator(self.df_short_steps, "cum_ret")
+
+        dict = {
+            "long_rwin" : dict_long_rwin,
+            "long_cumret" : dict_long_cumret,
+            "short_rwin" : dict_short_rwin,
+            "short_cumret" : dict_short_cumret
+        }
+        self.best_indicators = dict
+        self.best_indicators_df = pd.DataFrame(dict).T
 
     def set_full_exit_df(self):
         """
@@ -326,52 +372,6 @@ class bt_helper():
 
         self.get_best_indicators()
 
-    def get_best_indicator(self, df_results, max_colname: str):
-        """
-        Returns column of the max_colname that needs to be maximized as a dictionary, if 
-        there are multiple such rows, returns the range of the max_colname
-        !! the reason we include this inside the class is for the sake of readability
-        """
-        # df_results = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
-        max_df     = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
-        # this will give us the values of the loosest indicator
-        ref_row = max_df.iloc[-1]
-        range = ref_row.cutoff
-        # range = None
-        # if max_df.shape[0] == 1:
-        #     # get value of the indicator column of df_results that has the maximum value of max_colname
-        #     range = ref_row.cutoff
-        # else:
-        #     # return a tuple of the min and max values of the indicator column of df_results
-        #     range = (max_df.loc[max_df.cutoff.idxmin()].cutoff, max_df.loc[max_df.cutoff.idxmax()].cutoff)
-        dict = {
-            "best_indicator": range,
-            "trades"        : ref_row.trades,
-            "wins"          : ref_row.wins,
-            "Rwin"          : ref_row.Rwin,
-            "cum_ret"       : ref_row.cum_ret
-        }
-        return dict
-
-    def get_best_indicators(self):
-        """
-        Returns a dict of 4 dictionaries for indicator rows that maximize Rwin and cumret in both df_long_steps and df_short_steps
-        Called by set_full_exit_df()
-        """
-        dict_long_rwin = self.get_best_indicator(self.df_long_steps, "Rwin")
-        dict_long_cumret = self.get_best_indicator(self.df_long_steps, "cum_ret")
-        dict_short_rwin = self.get_best_indicator(self.df_short_steps, "Rwin")
-        dict_short_cumret = self.get_best_indicator(self.df_short_steps, "cum_ret")
-
-        dict = {
-            "long_rwin" : dict_long_rwin,
-            "long_cumret" : dict_long_cumret,
-            "short_rwin" : dict_short_rwin,
-            "short_cumret" : dict_short_cumret
-        }
-        self.best_indicators = dict
-        self.best_indicators_df = pd.DataFrame(dict).T
-
 # class cindicatorAB_longshort(IStrategy):
 class backtest():
     # So all the methods below are called only once per backtest and each time during the bot loop for 
@@ -442,95 +442,28 @@ class backtest():
         # we esentially buy whenever the (base price + trade_buffer) is within low price and high price 
         # (this will go to hyperopt later) 
         df_nominal_buy_sell = df_copy.loc[
-            (df_copy['base']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither') |
-            (df_copy['above'] * self.my_params["trade_buffer"]).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither') |
-            (df_copy['below'] * self.my_params["trade_buffer"]).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither')
+            # !! PROBLEM - Entry and exit prices don't seem to be within high and low bounds, let's make that surez
+            # filters rows that have base (entry) price within open and close
+            (df_copy['base']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither') | 
+            # filters rows that have above price within open and close
+            (df_copy['above']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither') |
+            # filters rows that have below price within open and close
+            (df_copy['below']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither')
         ]
 
         df_copy["buy1_or_sell2"] = df_nominal_buy_sell.progress_apply(lambda row: self.bt_helper.is_actual_buy_sell(row), axis='columns')
         # dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt_helper.is_actual_sell(row), axis='columns')
     
-    def populate_buy_trend(self) -> pd.DataFrame:
-        """
-        Based on TA indicators, populates the buy signal for the given dataframe
-        :param dataframe: pd.DataFrame
-        :return: pd.DataFrame with buy column
-        """
-
-        # returns the signals that might be a buy, we will then iterate over this subset 
-        # to see which ones are actual buys based on "is_actual_buy" 
-        df_copy = self.ticker_df
-        df_copy.assign(buy = 0)
-
-        # FILTER FOR THE NOMINAL BUY CONDITION
-        # we esentially buy whenever the (base price + trade_buffer) is within low price and high price 
-        # (this will go to hyperopt later) 
-        df_nominal_buy = df_copy.loc[
-            (df_copy['base']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='both')
-        ]
-
-        df_copy["buy"] = df_nominal_buy.progress_apply(lambda row: self.bt_helper.is_actual_buy(row), axis='columns')
-
-    # |*|
-    def populate_sell_trend_orig(self) -> pd.DataFrame:
-        """
-        !! Deprecated, use populate_sell_trend instead | 2022-07-15 14:58
-        Based on TA indicators, populates the sell signal for the given ticker_df
-        !! Assumes both above and below price cannot be wihtin the same candle
-        :param ticker_df: pd.DataFrame
-        :return: pd.DataFrame with buy column
-        """
-
-        # add a new column "sell" to ticker_df, initialize it to 0
-        ticker_df = ticker_df.assign(sell = 0)
-
-        # filter for the nominal sell condition
-        # we sell whenever the either above or below price is within the low and high of the candle
-        df_nominal_sell = ticker_df.loc[
-            (ticker_df['above'] * self.my_params["trade_buffer"]).between(ticker_df.loc[:,3], ticker_df.loc[:,2], inclusive='neither') |
-            (ticker_df['below'] * self.my_params["trade_buffer"]).between(ticker_df.loc[:,3], ticker_df.loc[:,2], inclusive='neither')
-        ]
-        
-        ticker_df["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt_helper.is_actual_sell(row), axis='columns')
-
-        return ticker_df
-
-    def populate_sell_trend(self) -> pd.DataFrame:
-        """
-        Based on TA indicators, populates the sell signal on the self.ticker_df 
-        !! Assumes both above and below price cannot be wihtin the same candle
-        :return: pd.DataFrame with buy column
-        """
-        # !! this line is important
-        dataframe = self.ticker_df
-
-        # add a new column "sell" to dataframe, initialize it to 0
-        # dataframe = dataframe.assign(sell = 0)
-        dataframe.assign(sell = 0)
-
-        df_nominal_sell = dataframe.loc[
-            (dataframe['above'] * self.my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2], inclusive='neither') |
-            (dataframe['below'] * self.my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2], inclusive='neither')
-
-        ]
-        dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt_helper.is_actual_sell(row), axis='columns')
-        # dataframe["sell"] = df_nominal_below.progress_apply(lambda row: self.bt_helper.is_actual_sell(row), axis='columns')
-        
-        # df_nominal_below = dataframe.loc[
-        #     (dataframe['below'] * self.my_params["trade_buffer"]).between(dataframe.loc[:,3], dataframe.loc[:,2], inclusive='neither')
-        # ]
-        # #     def is_actual_sell(self, current_signal_dict, sell_index, is_above_exit: bool):
-    
     def display_results(self):
         """
         Displays the results of interest after setting the final attributes of self.bt_helper 
         """
-        min_indicator = self.my_params["min_indicator"]
-        max_indicator = self.my_params["max_indicator"]
-        tot_filtered = len(self.signal_df_indicator_filtered)
-        tot_sells = len(self.bt_helper.closed_trades)
+        min_indicator         = self.my_params["min_indicator"]
+        max_indicator         = self.my_params["max_indicator"]
+        tot_filtered          = len(self.signal_df_indicator_filtered)
+        tot_sells             = len(self.bt_helper.closed_trades)
         tot_bought_never_sold = len(self.bt_helper.open_trades)
-        tot_never_bought = tot_filtered - (tot_sells + tot_bought_never_sold)
+        tot_never_bought      = tot_filtered - (tot_sells + tot_bought_never_sold)
 
         # call set_full_exit_df on the bt_helper
         self.bt_helper.set_full_exit_df()
@@ -545,6 +478,8 @@ class backtest():
         print(f"The number of signals never bought  - {tot_never_bought}")
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
+        print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
+        print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
 
 
