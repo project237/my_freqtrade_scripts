@@ -200,8 +200,8 @@ class bt_helper():
         self.my_params            = my_params
         self.last_entry_signal_id = None
         self.last_exit_signal_id  = None
-        self.buys_set             = set()   # these will be deprecated
-        self.sells_set            = set()  # these will be deprecated
+        self.buys_set             = set()   # todo - these will be deprecated
+        self.sells_set            = set()   # todo - these will be deprecated
         self.open_trades          = [] # at the end of bt_helper, we'll check this to see if any trades were left open
         self.closed_trades        = [] # at the end of bt_helper, will be turned into a dataframe to give us the bt_helper results
         self.df_closed            = None # will store the df that is turned from self.closed_trades where we set the bactest is over
@@ -210,6 +210,12 @@ class bt_helper():
         self.df_short_steps       = None
         self.best_indicators      = None
         self.best_indicators_df   = None
+        self.best_L_ind_totwin    = None
+        self.best_L_ind_Rwin      = None
+        self.best_S_ind_totwin    = None
+        self.best_S_ind_Rwin      = None
+        self.cumret_totwin_best_ind  = None
+        self.cumret_Rwin_best_ind    = None
 
     def is_actual_buy_sell(self, row : Dict) -> bool:
         """
@@ -283,6 +289,7 @@ class bt_helper():
         """
         # df_results = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
         max_df     = df_results.loc[df_results[max_colname] == df_results[max_colname].max()]
+
         # this will give us the values of the loosest indicator
         ref_row = max_df.iloc[-1]
         range = ref_row.cutoff
@@ -307,16 +314,23 @@ class bt_helper():
         Returns a dict of 4 dictionaries for indicator rows that maximize Rwin and cumret in both df_long_steps and df_short_steps
         Called by set_full_exit_df()
         """
-        dict_long_rwin = self.get_best_indicator(self.df_long_steps, "Rwin")
-        dict_long_cumret = self.get_best_indicator(self.df_long_steps, "cum_ret")
-        dict_short_rwin = self.get_best_indicator(self.df_short_steps, "Rwin")
-        dict_short_cumret = self.get_best_indicator(self.df_short_steps, "cum_ret")
+        dict_long_rwin         = self.get_best_indicator(self.df_long_steps, "Rwin")
+        self.best_L_ind_Rwin   = dict_long_rwin["best_indicator"]
+        dict_long_cumret       = self.get_best_indicator(self.df_long_steps, "cum_ret")
+        self.best_L_ind_totwin = dict_long_cumret["best_indicator"]
+        dict_short_rwin        = self.get_best_indicator(self.df_short_steps, "Rwin")
+        self.best_S_ind_Rwin   = dict_short_rwin["best_indicator"]
+        dict_short_cumret      = self.get_best_indicator(self.df_short_steps, "cum_ret")
+        self.best_S_ind_totwin = dict_short_cumret["best_indicator"]
+
+        self.cumret_totwin_best_ind = round((1 + dict_long_cumret["cum_ret"]) * (1 + dict_short_cumret["cum_ret"]) - 1, 4)
+        self.cumret_Rwin_best_ind   = round(( 1+ dict_long_rwin["cum_ret"]) * (1 + dict_short_rwin["cum_ret"]) - 1, 4)
 
         dict = {
-            "long_rwin" : dict_long_rwin,
+            "long_rwin"   : dict_long_rwin,
             "long_cumret" : dict_long_cumret,
-            "short_rwin" : dict_short_rwin,
-            "short_cumret" : dict_short_cumret
+            "short_rwin"  : dict_short_rwin,
+            "short_cumret": dict_short_cumret
         }
         self.best_indicators = dict
         self.best_indicators_df = pd.DataFrame(dict).T
@@ -417,25 +431,30 @@ class backtest():
 
     # def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
     def __init__(self, my_params: Dict) -> None:
-        self.signal_file = my_params["signal_file"] #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json" 
+        self.signal_file = my_params["signal_file"] #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json"
         self.ticker_file = my_params["ticker_file"] #"/home/u237/projects/backtests/cindicator-bt_helper1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
-        self.my_params = my_params
-        self.bt_helper = bt_helper(my_params)
+        self.my_params   = my_params
+        self.bt_helper   = bt_helper(my_params)
+
         # we import our cindictor AB sorted df here for use in populate_indicators, also the ticker df
-        self.signals = pd.read_json(self.signal_file)
+        self.signals   = pd.read_json(self.signal_file)
         self.ticker_df = pd.read_json(self.ticker_file)
 
         # filter signals df for only our TICKER and those with indicator greater than min_indicator 
         self.signal_df_indicator_filtered = self.signals.loc[((self.signals.ticker == "ZEC/USD") & ~(self.signals.indicator.between(my_params["max_indicator"], my_params["min_indicator"], inclusive='neither'))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
-        self.signal_df = self.signal_df_indicator_filtered.copy()
+        self.signal_df                    = self.signal_df_indicator_filtered.copy()
+
+        # finally run the backtest
+        self.run_backtest()
     
-    def run_bactest(self):
+    def run_backtest(self):
         """
-        TODO - 
-        Will be populated with sequence of correct method calls
-        after testing the class from a main function
+        Run the sequence of correct method calls as a final step in the constructor | 2022-07-27 17:32
         """
-        # todo - apply effective_price() to necessary column in the signal df, remove applications of effective_price() in the rest of the code
+        self.populate_indicators()
+        self.populate_buy_sell()
+        self.display_results()
+
 
     # An informative dictionary mapping ticker df column to their meanings - 2022-06-30 21:07
     ticker_df_column_ref = {
@@ -503,6 +522,7 @@ class backtest():
 
         # call set_full_exit_df on the bt_helper
         self.bt_helper.set_full_exit_df()
+        # self.construct_trade_dfs()
 
         print("================================THE BACKTEST OF IS OVER================================")
         print("The dict of params:")
@@ -514,6 +534,9 @@ class backtest():
         print(f"The number of signals never bought  - {tot_never_bought}")
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
+        print()
+        print(f"Total return from best inficators that maximize total wins: \n{self.bt_helper.cumret_totwin_best_ind}")
+        print(f"Total return from best inficators that maximize ratio of wins losses: \n{self.bt_helper.cumret_Rwin_best_ind}")
         # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
