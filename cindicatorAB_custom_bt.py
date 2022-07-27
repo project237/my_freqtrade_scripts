@@ -100,9 +100,23 @@ class trade():
     Initialized with the signal object of the signal the trade was opened upon
     Trade status will be kept by class bt_helper()
     """
-    def __init__(self, signal, candle_index, my_params):
-        self.my_params       = my_params
-        self.entry_index     = candle_index
+    def __init__(self, signal, candle, my_params):
+        # todo - atts to add
+        # - entry candle as dictionary with keys "high", "low", "open", "close", "timestamp"
+        # - exit candle as dictionary with keys "high", "low", "open", "close", "timestamp"
+
+        # self.my_params       = my_params # todo - set this as class variable
+        self.entry_index     = candle.name # todo - will be deprecated 
+        # self.entry_candle will contain the first 6 attributes of the candle with keys 0-5
+        self.entry_candle    = {
+            "TS": candle[0],
+            "O": candle[1],
+            "H": candle[2],
+            "L": candle[3],
+            "C": candle[4],
+            "V": candle[5]
+        }
+        self.exit_candle     = None
         self.signal          = signal
         self.signal_id       = signal["Mid"]
         self.indicator       = signal["indicator"]
@@ -118,18 +132,30 @@ class trade():
         assert self.type is not None, "long / short type is None"
 
         # these will be filled upon exit
-        self.exit_index     = None
-        self.is_win         = None
         # self.is_above       = None
         # self.is_win         = (True if ((self.is_above and self.type == "L") or (not self.is_above and self.type == "S")) else False)
-        self.exit_price     = None
-        self.profit_percent = None
+        self.exit_index         = None
+        self.exit_candle        = None
+        self.is_win             = None
+        self.exit_price         = None
+        self.profit_percent     = None
+        self.elapsed_hours      = None
         
-    def set_exit_attributes(self, exit_index, is_above: bool) -> None:
+    def set_exit_attributes(self, exit_candle, is_above: bool) -> None:
         """
         Sets the exit attributes of the trade   
         """
-        self.exit_index    = exit_index
+        self.exit_index         = exit_candle.name
+        self.exit_candle        = {
+            "TS": exit_candle[0],
+            "O" : exit_candle[1],
+            "H" : exit_candle[2],
+            "L" : exit_candle[3],
+            "C" : exit_candle[4],
+            "V" : exit_candle[5]
+        }
+        # note that this is in ms hence 3600000 = 1 hour
+        self.elapsed_hours = (self.exit_candle["TS"] - self.entry_candle["TS"]) / 3600000
 
         if (is_above and self.type == "L"):
             self.is_win = True
@@ -206,7 +232,8 @@ class bt_helper():
                 self.buys_set.add(current_signal_id)
 
                 # create the trade object with the current signal
-                trade_obj = trade(current_signal_dict, ticker_index, self.my_params)
+                # trade_obj = trade(current_signal_dict, ticker_index, self.my_params)
+                trade_obj = trade(current_signal_dict, row, self.my_params)
                 self.open_trades.append(trade_obj)
 
                 return 1
@@ -237,7 +264,8 @@ class bt_helper():
 
                 # remove the last item from open_trades and append to closed_trades
                 last_trade = self.open_trades.pop()
-                last_trade.set_exit_attributes(ticker_index, is_above_exit)
+                # last_trade.set_exit_attributes(ticker_index, is_above_exit)
+                last_trade.set_exit_attributes(row, is_above_exit)
                 self.closed_trades.append(last_trade)
 
                 return 2
@@ -483,8 +511,8 @@ class backtest():
         print(f"The number of signals never bought  - {tot_never_bought}")
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
-        print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
-        print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
+        # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
+        # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
 
 
