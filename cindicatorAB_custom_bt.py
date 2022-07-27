@@ -100,6 +100,8 @@ class trade():
     Initialized with the signal object of the signal the trade was opened upon
     Trade status will be kept by class bt_helper()
     """
+    # ticker will inherit from backtest.my_params["ticker"]
+
     def __init__(self, signal, candle, my_params):
         # todo - atts to add
         # - entry candle as dictionary with keys "high", "low", "open", "close", "timestamp"
@@ -110,11 +112,11 @@ class trade():
         # self.entry_candle will contain the first 6 attributes of the candle with keys 0-5
         self.entry_candle    = {
             "TS": candle[0],
-            "O": candle[1],
-            "H": candle[2],
-            "L": candle[3],
-            "C": candle[4],
-            "V": candle[5]
+            "O" : candle[1],
+            "H" : candle[2],
+            "L" : candle[3],
+            "C" : candle[4],
+            "V" : candle[5]
         }
         self.exit_candle     = None
         self.signal          = signal
@@ -413,14 +415,15 @@ class backtest():
     # live trading and dry run modes
     # keep this in mind..
 
-    def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
-        self.signal_file = signal_file #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json" 
-        self.ticker_file = ticker_file #"/home/u237/projects/backtests/cindicator-bt_helper1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
+    # def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
+    def __init__(self, my_params: Dict) -> None:
+        self.signal_file = my_params["signal_file"] #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json" 
+        self.ticker_file = my_params["ticker_file"] #"/home/u237/projects/backtests/cindicator-bt_helper1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
         self.my_params = my_params
         self.bt_helper = bt_helper(my_params)
         # we import our cindictor AB sorted df here for use in populate_indicators, also the ticker df
-        self.signals = pd.read_json(signal_file)
-        self.ticker_df = pd.read_json(ticker_file)
+        self.signals = pd.read_json(self.signal_file)
+        self.ticker_df = pd.read_json(self.ticker_file)
 
         # filter signals df for only our TICKER and those with indicator greater than min_indicator 
         self.signal_df_indicator_filtered = self.signals.loc[((self.signals.ticker == "ZEC/USD") & ~(self.signals.indicator.between(my_params["max_indicator"], my_params["min_indicator"], inclusive='neither'))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
@@ -514,5 +517,3 @@ class backtest():
         # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
-
-
