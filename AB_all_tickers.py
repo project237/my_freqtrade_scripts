@@ -38,10 +38,28 @@ my_params = {
     "ticker_file"  : "/home/u237/projects/backtests/cindicator-bt1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
     }
 
-# dowload data loop
-for i, j in enumerate(N_tickers):
-    print(f"{i} - {j}")
+def download_command(ticker):
+    # return "wget -O /home/u237/projects/backtests/cindicator-bt1/ft_userdata/user_data/data/binance_old/" + ticker + "-1h.json https://api.binance.com/api/v1/klines?symbol=" + ticker + "&interval=1h"
+    # c_string = f"dcr freqtrade download-data -t 15m --timerange 20180401- --pairs {ticker} --exchange binance"
+    c_string = f"dcr freqtrade download-data -t 30m --timerange 20180401- --exchange binance --pairs-file /home/u237/projects/backtests/cindicator-bt1/ft_userdata/user_data/data/binance/pairs.json"
 
+def tickers_to_config(N_tickers):
+    """
+    To be used before the backtest, externally
+    The output is added to the appropriate place in config.json
+    Print all tickers in N_tickers as json list of string  | 2022-07-29 01:00
+    """
+    tickers = N_tickers.index.tolist()
+
+    # append T to the end of any item in tickers that ends with "USD"
+    for i, ticker in enumerate(tickers):
+        if ticker.endswith("USD"):
+            tickers[i] = ticker + "T"
+        # also add double quotes to the tickers
+        tickers[i] = '"' + tickers[i] + '"'
+
+    tickers_json = "[\n\t" + ",\n\t".join(tickers) + "\n]"
+    print(tickers_json)    
 
 # the bactest loop
 for i, ticker in enumerate(N_tickers):
