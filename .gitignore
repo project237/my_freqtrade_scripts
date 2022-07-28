@@ -132,3 +132,4 @@ freqtrade_data_to_df.py
 output/
 T_cindicatorAB_custom_bt.py
 T_AB_all_tickers.py
+T_AB_all_tickers.ipynb
