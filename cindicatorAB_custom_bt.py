@@ -476,14 +476,15 @@ class backtest():
     # keep this in mind..
 
     # def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
-    def __init__(self, my_params: Dict) -> None:
+    def __init__(self, my_params: Dict, signal_df) -> None:
         self.signal_file = my_params["signal_file"] #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json"
         self.ticker_file = my_params["ticker_file"] #"/home/u237/projects/backtests/cindicator-bt_helper1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
         self.my_params   = my_params
         self.bt_helper   = bt_helper(my_params)
 
         # we import our cindictor AB sorted df here for use in populate_indicators, also the ticker df
-        self.signals   = pd.read_json(self.signal_file)
+        # self.signals   = pd.read_json(self.signal_file)
+        self.signals   = signal_df
         self.ticker_df = pd.read_json(self.ticker_file)
 
         # filter signals df for only our TICKER and those with indicator greater than min_indicator 
@@ -568,12 +569,21 @@ class backtest():
 
         # call set_full_exit_df on the bt_helper
         self.bt_helper.set_full_exit_df()
-        # self.construct_trade_df()
+        df_closed = self.bt_helper.df_closed
 
         print("================================THE BACKTEST OF IS OVER================================")
+
+        day0 = df_closed.M_dt.iloc[0]
+        dayLast = df_closed.M_dt.iloc[-1]
+        print(f"Showing results for backtest between times of: \n{day0}\n{dayLast}")
+        arL = arrow.get(dayLast)
+        ar0 = arrow.get(day0)
+        print(f"{ar0.humanize(arL, granularity=['year', 'day'], only_distance=True)}\n")
+
         print("The dict of params:")
         # pprint(self.my_params, indent=4)
         [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
+        print()
         print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {tot_filtered}")
         print(f"The number of total sells           - {tot_sells}")
         print(f"The number of signals never sold    - {tot_bought_never_sold}") # all signals that were sold were popped from here
