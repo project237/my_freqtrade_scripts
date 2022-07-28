@@ -335,6 +335,49 @@ class bt_helper():
         self.best_indicators = dict
         self.best_indicators_df = pd.DataFrame(dict).T
 
+    def construct_trade_df(self):
+        """
+        # construct a df that will contain rows as trades inside bt_helper.closed_trades with attributes of 
+        # signal.M_dt, signal.above, signal.below, signal.indicator, effective_entry, exit_price,
+        # entry_index, exit_index
+        # also, from ticker_df, finds rows with index entry_index, exit_index and adds column number 0, 2 and 3 for both
+        """
+        col_list = [
+            "above", "below", "indicator", "entry_price", "exit_price", "M_dt", "base",
+            "candle1_dt", "candle2_dt", "high1", "low1", "high2", "low2", "is_win", "elapsed_hours", "elapsed_days", "%profit"
+            ] 
+        trade_df = pd.DataFrame(columns=col_list)
+        for trade in self.closed_trades:
+            row_dict = {
+                "base"          : trade.signal["base"],
+                "above"         : trade.signal["above"],
+                "below"         : trade.signal["below"],
+                "indicator"     : trade.signal["indicator"],
+                "entry_price"   : trade.effective_entry,
+                "exit_price"    : trade.exit_price,
+                "is_win"        : int(trade.is_win),
+                "%profit"       : round(trade.profit_percent, 3),
+                "candle1_dt"    : arrow.get(int(trade.entry_candle["TS"])).format("YYYY-MM-DD HH:mm:ss"),
+                "candle2_dt"    : arrow.get(int(trade.exit_candle["TS"])).format("YYYY-MM-DD HH:mm:ss"),
+                "high1"         : trade.entry_candle["H"],
+                "low1"          : trade.entry_candle["L"],
+                "high2"         : trade.exit_candle["H"],
+                "low2"          : trade.exit_candle["L"],
+                "elapsed_hours" : trade.elapsed_hours,
+                "elapsed_days"  : round(trade.elapsed_hours / 24, 2)
+                }
+            
+            row_dict["M_dt"] = arrow.get(int(trade.signal["M_dt"])).format("YYYY-MM-DD HH:mm:ss")
+            trade_df = pd.concat([trade_df, pd.DataFrame(row_dict, index=[0])], ignore_index=True)
+        # change thge order of columns as "indicator", "M_dt",	"candle1_dt", "candle2_dt", "high1", "low1", "entry_price", "high2", "low2", "exit_price", "above", "below"
+        trade_df = trade_df[["indicator", "is_win", "%profit", "M_dt", "candle1_dt", "candle2_dt", "low1", "high1", "entry_price", "base", "low2", "high2", "exit_price", "above", "below", "elapsed_hours", "elapsed_days"]]
+        # reorder with column M_dt as increasing
+        trade_df = trade_df.sort_values(by=["M_dt"])
+        # turn column is_win into int
+        # trade_df["elapsed_days"] = trade_df["elapsed_hours"] / 24
+        trade_df["is_win"] = trade_df["is_win"].astype(int)
+        self.df_closed = trade_df
+
     def set_full_exit_df(self):
         """
         Assings df_long_steps and df_short_steps which contain the sliced indicator step objects 
@@ -344,7 +387,8 @@ class bt_helper():
         cols_list = ["type", "indicator", "is_win", "profit_percent", "signal_id"]
 
         # turns self.closed_trades (a list) into a pandas df
-        self.df_closed = pd.DataFrame([vars(s) for s in self.closed_trades], columns=cols_list)
+        # self.df_closed = pd.DataFrame([vars(s) for s in self.closed_trades], columns=cols_list)
+        self.construct_trade_df()
         closed = self.df_closed
 
         # loop for longs
@@ -375,7 +419,8 @@ class bt_helper():
 
                 # calculate cumulative profit
                 # todo - make sure it is the correct form
-                cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                # cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                cum_rets = np.cumprod(1 + this_slice['%profit'].values) - 1
                 cumret = cum_rets[-1]
 
             # add the step to the list of steps
@@ -412,7 +457,8 @@ class bt_helper():
 
                 # calculate cumulative profit
                 # todo - make sure it is the correct form
-                cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                # cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                cum_rets = np.cumprod(1 + this_slice['%profit'].values) - 1
                 cumret = cum_rets[-1]
 
             # add the step to the list of steps
@@ -522,7 +568,7 @@ class backtest():
 
         # call set_full_exit_df on the bt_helper
         self.bt_helper.set_full_exit_df()
-        # self.construct_trade_dfs()
+        # self.construct_trade_df()
 
         print("================================THE BACKTEST OF IS OVER================================")
         print("The dict of params:")
