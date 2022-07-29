@@ -3,11 +3,6 @@
 # This file is the copy of cindicatorAB_method_2.py at commit 400642f91ab043db383b9807cfa5745e713aa2f8
 # 2022-07-07 17:38
 
-"""
-Some text
-"""
-
-
 ## --- !! UNCOMMENT ONLY IN CASE OF ERROR ---
 # from ctypes.wintypes import BOOL
 # from freqtrade.strategy import IStrategy, merge_informative_pair
@@ -197,25 +192,25 @@ class bt_helper():
     """
 
     def __init__(self, my_params) -> None:
-        self.my_params            = my_params
-        self.last_entry_signal_id = None
-        self.last_exit_signal_id  = None
-        self.buys_set             = set()   # todo - these will be deprecated
-        self.sells_set            = set()   # todo - these will be deprecated
-        self.open_trades          = [] # at the end of bt_helper, we'll check this to see if any trades were left open
-        self.closed_trades        = [] # at the end of bt_helper, will be turned into a dataframe to give us the bt_helper results
-        self.df_closed            = None # will store the df that is turned from self.closed_trades where we set the bactest is over
+        self.my_params              = my_params
+        self.last_entry_signal_id   = None
+        self.last_exit_signal_id    = None
+        self.buys_set               = set()   # todo - these will be deprecated
+        self.sells_set              = set()   # todo - these will be deprecated
+        self.open_trades            = [] # at the end of bt_helper, we'll check this to see if any trades were left open
+        self.closed_trades          = [] # at the end of bt_helper, will be turned into a dataframe to give us the bt_helper results
+        self.df_closed              = None # will store the df that is turned from self.closed_trades where we set the bactest is over
         # "steps" is an alias for indicator values
-        self.df_long_steps        = None
-        self.df_short_steps       = None
-        self.best_indicators      = None
-        self.best_indicators_df   = None
-        self.best_L_ind_totwin    = None
-        self.best_L_ind_Rwin      = None
-        self.best_S_ind_totwin    = None
-        self.best_S_ind_Rwin      = None
-        self.cumret_totwin_best_ind  = None
-        self.cumret_Rwin_best_ind    = None
+        self.df_long_steps          = None
+        self.df_short_steps         = None
+        self.best_indicators        = None
+        self.best_indicators_df     = None
+        self.best_L_ind_totwin      = None
+        self.best_L_ind_Rwin        = None
+        self.best_S_ind_totwin      = None
+        self.best_S_ind_Rwin        = None
+        self.cumret_totwin_best_ind = None
+        self.cumret_Rwin_best_ind   = None
 
     def is_actual_buy_sell(self, row : Dict) -> bool:
         """
@@ -476,7 +471,11 @@ class backtest():
     # keep this in mind..
 
     # def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
-    def __init__(self, my_params: Dict, signal_df) -> None:
+    def __init__(self, my_params: Dict, signal_df, local_mode=True) -> None:
+        """
+        Set local_mode to False if runnin the bactest over other tickers as well
+        """
+        self.local_mode  = local_mode 
         self.signal_file = my_params["signal_file"] #"/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json"
         self.ticker_file = my_params["ticker_file"] #"/home/u237/projects/backtests/cindicator-bt_helper1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
         self.my_params   = my_params
@@ -490,6 +489,13 @@ class backtest():
         # filter signals df for only our TICKER and those with indicator greater than min_indicator 
         self.signal_df_indicator_filtered = self.signals.loc[((self.signals.ticker == "ZEC/USD") & ~(self.signals.indicator.between(my_params["max_indicator"], my_params["min_indicator"], inclusive='neither'))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
         self.signal_df                    = self.signal_df_indicator_filtered.copy()
+        self.tot_filtered                 = self.signal_df_indicator_filtered.shape[0]
+
+        # attributes to be filled at the end of the bactest
+        self.tot_bought_never_sold  = None # will be len(self.bt_helper.open_trades)
+        self.tot_never_bought       = None # will be self.tot_filtered - (self.tot_sells + self.tot_bought_never_sold)
+        self.tot_sells              = None # will be self.bt_helper.df_closed.shape[0]
+
 
         # finally run the backtest
         self.run_backtest()
@@ -500,7 +506,14 @@ class backtest():
         """
         self.populate_indicators()
         self.populate_buy_sell()
-        self.display_results()
+        self.bt_helper.set_full_exit_df()
+        
+        self.tot_bought_never_sold = len(self.bt_helper.open_trades)
+        self.tot_sells             = self.bt_helper.df_closed.shape[0]
+        self.tot_never_bought      = self.tot_filtered - (self.tot_sells + self.tot_bought_never_sold)
+
+        if self.local_mode:
+            self.display_results()
 
 
     # An informative dictionary mapping ticker df column to their meanings - 2022-06-30 21:07
@@ -562,13 +575,8 @@ class backtest():
         """
         min_indicator         = self.my_params["min_indicator"]
         max_indicator         = self.my_params["max_indicator"]
-        tot_filtered          = len(self.signal_df_indicator_filtered)
-        tot_sells             = len(self.bt_helper.closed_trades)
-        tot_bought_never_sold = len(self.bt_helper.open_trades)
-        tot_never_bought      = tot_filtered - (tot_sells + tot_bought_never_sold)
 
         # call set_full_exit_df on the bt_helper
-        self.bt_helper.set_full_exit_df()
         df_closed = self.bt_helper.df_closed
 
         print("================================THE BACKTEST OF IS OVER================================")
@@ -584,10 +592,10 @@ class backtest():
         # pprint(self.my_params, indent=4)
         [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
         print()
-        print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {tot_filtered}")
-        print(f"The number of total sells           - {tot_sells}")
-        print(f"The number of signals never sold    - {tot_bought_never_sold}") # all signals that were sold were popped from here
-        print(f"The number of signals never bought  - {tot_never_bought}")
+        print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {self.tot_filtered}")
+        print(f"The number of total sells           - {self.tot_sells}")
+        print(f"The number of signals never sold    - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
+        print(f"The number of signals never bought  - {self.tot_never_bought}")
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
         print()
