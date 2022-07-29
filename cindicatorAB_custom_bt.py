@@ -487,7 +487,8 @@ class backtest():
         self.ticker_df = pd.read_json(self.ticker_file)
 
         # filter signals df for only our TICKER and those with indicator greater than min_indicator 
-        self.signal_df_indicator_filtered = self.signals.loc[((self.signals.ticker == "ZEC/USD") & ~(self.signals.indicator.between(my_params["max_indicator"], my_params["min_indicator"], inclusive='neither'))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
+        # todo - the indicator filtering will be done for a second time in case of global mode, insert an if statement for this
+        self.signal_df_indicator_filtered = self.signals.loc[((self.signals.ticker == my_params["ticker"]) & ~(self.signals.indicator.between(my_params["max_indicator"], my_params["min_indicator"], inclusive='neither'))), ['base', 'above', 'below',"indicator", "M_dt", "Mid"]]
         self.signal_df                    = self.signal_df_indicator_filtered.copy()
         self.tot_filtered                 = self.signal_df_indicator_filtered.shape[0]
 
@@ -588,7 +589,7 @@ class backtest():
         ar0 = arrow.get(day0)
         print(f"{ar0.humanize(arL, granularity=['year', 'day'], only_distance=True)}\n")
 
-        print("The dict of params:")
+        print("Displaying Parameters:")
         # pprint(self.my_params, indent=4)
         [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
         print()
@@ -601,6 +602,127 @@ class backtest():
         print()
         print(f"Total return from best inficators that maximize total wins: \n{self.bt_helper.cumret_totwin_best_ind}")
         print(f"Total return from best inficators that maximize ratio of wins losses: \n{self.bt_helper.cumret_Rwin_best_ind}")
+        # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
+        # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
+        print("=======================================================================================")
+
+class bt_top_N():
+    """
+    The class that will be running the backtest on all tickers given by the list top_N 
+    Will be calling backtest() N times
+    todo - try indicator-filtering and grouping all signals acc to ticker, and then passing signal_df to individual backtests accdingly
+    """
+    def __init__(self, my_params: dict) -> None:
+        self.N_tickers = my_params["N_tickers"]
+        self.my_params = my_params
+        self.signal_df   = pd.read_json(my_params["signal_file"])
+        
+        # getting top N tickers as a series object to iterate in the loop
+
+        # ===================TO BE SET AFTER BACKTEST===================
+        
+        self.tot_signal_df_filtered = None # todo - will be set to the sum of backtest.self.tot_filtered
+        self.tot_bought_never_sold  = None
+        self.tot_never_bought       = None
+        self.tot_sells              = None # will be the length of df_closed_topN
+        col_names = [
+            # !! Have decided that "ticker" wont be a column but a second level index instead"
+            'indicator', 'is_win', '%profit', 'M_dt', 'candle1_dt', 
+            'candle2_dt', 'low1', 'high1', 'entry_price', 'base', 'low2', 'high2', 
+            'exit_price', 'above', 'below', 'elapsed_hours', 'elapsed_days'
+        ]
+        # initalize the empty df trades that each loop is going to append rows to
+        self.df_closed_topN = pd.DataFrame(columns=col_names)
+
+        # =====================RUNNING THE BACKTEST=====================
+
+        self.run_backtest()
+        self.display_results_top_N()
+
+    def get_ticker_file(self, ticker):
+        path       = self.my_params["ticker_file_dir"]
+        time_frame = self.my_params["time_frame"]
+        ticker     = ticker.replace("/", "_")
+
+        return f"{path}{ticker}-{time_frame}.json"
+
+    def run_backtest(self):
+        cum_signal_df_filtered    = 0
+        cum_tot_bought_never_sold = 0
+        cum_tot_never_bought      = 0
+        for i, ticker in enumerate(self.N_tickers): 
+            # correct all USD to USDT
+            if ticker.endswith("USD"):
+                ticker = ticker + "T"
+            backtest_param_dict                     = self.my_params.copy()
+            backtest_param_dict["ticker"]           = ticker
+            backtest_param_dict["ticker_file"]      = self.get_ticker_file(ticker)
+            
+            # !! everything happens here
+            bt                         = backtest(backtest_param_dict, self.signal_df, local_mode=False)
+            df_ticker                  = bt.bt_helper.df_closed
+
+            cum_signal_df_filtered    += bt.tot_filtered
+            cum_tot_bought_never_sold += bt.tot_bought_never_sold
+            cum_tot_never_bought      += bt.tot_never_bought
+            # df_ticker["ticker"]        = ticker
+
+            # add the ticker as a second level index
+            # todo - make sure this is the right place to do this
+            pd.concat([df_ticker], keys=[ticker], names=['ticker'])
+            # append df_ticker to df_tickers
+            self.df_closed_topN = pd.concat([self.df_closed_topN, df_ticker])
+
+        self.tot_signal_df_filtered = cum_signal_df_filtered
+        self.tot_bought_never_sold  = cum_tot_bought_never_sold
+        self.tot_never_bought       = cum_tot_never_bought
+        self.tot_sells              = self.df_closed_topN.shape[0]
+
+    def display_results_top_N(self):
+        """
+        Displays the results of interest after setting the final attributes of backtest.bt_helper 
+        """
+        min_indicator         = self.my_params["min_indicator"]
+        max_indicator         = self.my_params["max_indicator"]
+        # tot_filtered          = len(backtest.signal_df_indicator_filtered)
+        # tot_sells             = len(backtest.bt_helper.closed_trades)
+        # tot_bought_never_sold = len(backtest.bt_helper.open_trades)
+        # tot_never_bought      = tot_filtered - (tot_sells + tot_bought_never_sold)
+
+        # call set_full_exit_df on the bt_helper
+        # todo - will be set to the concatenated version
+        df_closed = self.df_closed_topN
+
+        print("================================THE BACKTEST OF IS OVER================================")
+
+        # todo - sort df_closed acc to entry candles, should be from entry candle of 1st trade to exit candle of the last one
+        df_closed_sorted = df_closed.sort_values(by=["M_dt"])
+        day0             = df_closed_sorted.M_dt.iloc[0]
+        dayLast          = df_closed_sorted.M_dt.iloc[-1]
+
+        print(f"Showing results for backtest between times of: \n{day0}\n{dayLast}")
+        arL = arrow.get(dayLast)
+        ar0 = arrow.get(day0)
+        print(f"{ar0.humanize(arL, granularity=['year', 'day'], only_distance=True)}\n")
+
+        print("Displaying Parameters:")
+        # pprint(backtest.my_params, indent=4)
+        [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
+        print()
+        # backtest.tot_filtered will be the length of the signal_df filtered at the beginning
+        print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {self.tot_signal_df_filtered}")
+        # backtest.tot_sells will be the length of self.df_closed_topN
+        print(f"The number of total sells           - {self.tot_sells}")
+        print(f"The number of signals never sold    - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
+        print(f"The number of signals never bought  - {self.tot_never_bought}")
+
+        # todo - complete the rest after testing this part sofar 
+        # print( "\nThe df of top indicator values for shorts and longs:\n")
+        # print(backtest.bt_helper.best_indicators_df.to_markdown()) 
+        # print()
+        # print(f"Total return from best inficators that maximize total wins: \n{backtest.bt_helper.cumret_totwin_best_ind}")
+        # print(f"Total return from best inficators that maximize ratio of wins losses: \n{backtest.bt_helper.cumret_Rwin_best_ind}")
+        # todo - end
         # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
