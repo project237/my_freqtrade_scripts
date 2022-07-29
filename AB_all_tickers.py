@@ -2,7 +2,7 @@
 
 import pandas as pd
 import numpy as np
-from cindicatorAB_custom_bt import trade, step, bt_helper, backtest
+from cindicatorAB_custom_bt import trade, step, bt_helper, backtest, bt_top_N
 from tqdm import tqdm
 
 # of 750 signals and 135 tickers, the selections of and total corresponding signals are given below
@@ -35,7 +35,9 @@ my_params = {
     "max_indicator": 20, # for short signals
     "ticker"       : "ZEC_USDT",
     "signal_file"  : "/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json",
-    "ticker_file"  : "/home/u237/projects/backtests/cindicator-bt1/ft_userdata/user_data/data/binance_old/ZEC_USDT-1h.json"
+    "ticker_file"  : "/home/u237/projects/backtests/cindicator-bt1/ft_userdata/user_data/data/binance/ZEC_USDT-1h.json",
+    "N_tickers"    : N_tickers,
+    "N"            : len(N_tickers)
     }
 
 def download_command(ticker):
