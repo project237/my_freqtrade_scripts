@@ -13,6 +13,8 @@ from typing import Dict, List
 import pandas as pd
 import arrow
 import numpy as np
+import pickle
+from contextlib import redirect_stdout
 from tqdm import tqdm
 from pprint import pprint
 # launching tdqm pandas methods
@@ -610,7 +612,7 @@ class backtest():
         print(self.bt_helper.best_indicators_df.to_markdown()) 
         print()
         print(f"Total return from best inficators that maximize total wins: \n{self.bt_helper.cumret_totwin_best_ind}")
-        print(f"Total return from best inficators that maximize ratio of wins losses: \n{self.bt_helper.cumret_Rwin_best_ind}")
+        print(f"Total return from best inficators that maximize ratio of wins to losses: \n{self.bt_helper.cumret_Rwin_best_ind}")
         # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
@@ -659,6 +661,9 @@ class bt_top_N():
         self.run_backtest()
         self.display_results_top_N()
 
+        # save all instance variables to self.my_params["output_file_dir"] using pickle
+        self.save_to_pickle()
+
     def get_ticker_file(self, ticker):
         path       = self.my_params["ticker_file_dir"]
         time_frame = self.my_params["time_frame"]
@@ -702,6 +707,18 @@ class bt_top_N():
         # here we run the global version of set_full_exit_df
         self.set_full_exit_df()
 
+    def p2f(func):
+        def wrapper(self):
+            file_dir, file_name = self.my_params["output_file_dir"], self.my_params["output_file"]
+            # append "/" to the end of the file_dir if it doesn't have one
+            if file_dir[-1] != "/":
+                file_dir += "/"
+            with open(file_dir + file_name, "w") as f:
+                with redirect_stdout(f):
+                    func(self)
+        return wrapper
+
+    @p2f
     def display_results_top_N(self):
         """
         Displays the results of interest after setting the final attributes of backtest.bt_helper 
@@ -742,10 +759,10 @@ class bt_top_N():
 
         # todo - complete the rest after testing this part sofar 
         print( "\nThe df of top indicator values for shorts and longs:\n")
-        print(backtest.best_indicators_df.to_markdown()) 
+        print(self.best_indicators_df.to_markdown()) 
         print()
-        print(f"Total return from best inficators that maximize total wins: \n{backtest.cumret_totwin_best_ind}")
-        print(f"Total return from best inficators that maximize ratio of wins losses: \n{backtest.cumret_Rwin_best_ind}")
+        print(f"Total return from best inficators that maximize total wins: \n{self.cumret_totwin_best_ind}")
+        print(f"Total return from best inficators that maximize ratio of wins to losses: \n{self.cumret_Rwin_best_ind}")
         # todo - end
         # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
@@ -898,3 +915,17 @@ class bt_top_N():
         self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
 
         self.get_best_indicators()
+
+class set_results():
+    """
+    This class will be used for constructing result object for saving and displaying 
+    backtest results whichever class is being run (backtest or bt_topN) | 2022-07-30 23:55
+    """
+    def __init__(self, df_closed):
+        pass
+
+
+
+
+
+
