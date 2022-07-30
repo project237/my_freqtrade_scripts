@@ -117,6 +117,7 @@ class trade():
         self.signal          = signal
         self.signal_id       = signal["Mid"]
         self.indicator       = signal["indicator"]
+        # todo - avoid 2nd application of effective_price() by just calling row.above etc. 
         self.effective_above = effective_price(signal["above"])
         self.effective_below = effective_price(signal["below"])
         self.effective_entry = effective_price(signal["base"])
@@ -471,7 +472,7 @@ class backtest():
     # keep this in mind..
 
     # def __init__(self, signal_file, ticker_file, my_params: Dict) -> None:
-    def __init__(self, my_params: Dict, signal_df, local_mode=True) -> None:
+    def __init__(self, my_params: Dict, signal_df=None, local_mode=True) -> None:
         """
         Set local_mode to False if runnin the bactest over other tickers as well
         """
@@ -482,8 +483,11 @@ class backtest():
         self.bt_helper   = bt_helper(my_params)
 
         # we import our cindictor AB sorted df here for use in populate_indicators, also the ticker df
-        # self.signals   = pd.read_json(self.signal_file)
         self.signals   = signal_df
+        if local_mode:
+            self.signals   = pd.read_json(self.signal_file)
+        else:
+            self.signals   = signal_df
         self.ticker_df = pd.read_json(self.ticker_file)
 
         # filter signals df for only our TICKER and those with indicator greater than min_indicator 
@@ -534,6 +538,10 @@ class backtest():
         # ticker_df["signal"]       = ticker_df.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0]), axis='columns')
         self.ticker_df["signal"]       = self.ticker_df.progress_apply(lambda row: return_current_signal_as_dict(self.signal_df, row.loc[0], row.loc[2], row.loc[3]), axis='columns')
         # self.ticker_df["base"]         = self.ticker_df.apply(lambda row: row["signal"].get("base"), axis="columns")
+        # Added this after applying effective_price to rows with empty signals has produced an error 
+        # From self.ticker_df drop all rows where column signal is {}
+        # !! make sure no problems with new index
+        self.ticker_df = self.ticker_df.loc[self.ticker_df["signal"] != {}]
         self.ticker_df["base"]         = self.ticker_df.apply(lambda row: effective_price(row["signal"].get("base")), axis="columns")
         self.ticker_df["above"]        = self.ticker_df.apply(lambda row: effective_price(row["signal"].get("above")), axis="columns")
         self.ticker_df["below"]        = self.ticker_df.apply(lambda row: effective_price(row["signal"].get("below")), axis="columns")
@@ -567,7 +575,7 @@ class backtest():
             (df_copy['below']).between(df_copy.loc[:,3], df_copy.loc[:,2], inclusive='neither')
         ]
 
-        df_copy["buy1_or_sell2"] = df_nominal_buy_sell.progress_apply(lambda row: self.bt_helper.is_actual_buy_sell(row), axis='columns')
+        df_copy["buy1_or_sell2"] = df_nominal_buy_sell.apply(lambda row: self.bt_helper.is_actual_buy_sell(row), axis='columns')
         # dataframe["sell"] = df_nominal_sell.progress_apply(lambda row: self.bt_helper.is_actual_sell(row), axis='columns')
     
     def display_results(self):
@@ -650,15 +658,16 @@ class bt_top_N():
         cum_signal_df_filtered    = 0
         cum_tot_bought_never_sold = 0
         cum_tot_never_bought      = 0
-        for i, ticker in enumerate(self.N_tickers): 
+        for i, ticker in enumerate(self.N_tickers, start=1): 
             # correct all USD to USDT
-            if ticker.endswith("USD"):
-                ticker = ticker + "T"
             backtest_param_dict                     = self.my_params.copy()
             backtest_param_dict["ticker"]           = ticker
+            if ticker.endswith("USD"):
+                ticker = ticker + "T"
             backtest_param_dict["ticker_file"]      = self.get_ticker_file(ticker)
             
             # !! everything happens here
+            print(f"{i} - RUNNING BACKTEST FOR {ticker}")
             bt                         = backtest(backtest_param_dict, self.signal_df, local_mode=False)
             df_ticker                  = bt.bt_helper.df_closed
 
