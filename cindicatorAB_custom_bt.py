@@ -14,6 +14,8 @@ import pandas as pd
 import arrow
 import numpy as np
 import pickle
+import os
+import re
 from contextlib import redirect_stdout
 from tqdm import tqdm
 from pprint import pprint
@@ -665,6 +667,7 @@ class bt_top_N():
         self.save_to_pickle()
 
     def get_ticker_file(self, ticker):
+        # todo -use the glopbal version insteed
         path       = self.my_params["ticker_file_dir"]
         time_frame = self.my_params["time_frame"]
         ticker     = ticker.replace("/", "_")
@@ -681,7 +684,15 @@ class bt_top_N():
             backtest_param_dict["ticker"]           = ticker
             if ticker.endswith("USD"):
                 ticker = ticker + "T"
-            backtest_param_dict["ticker_file"]      = self.get_ticker_file(ticker)
+            ticker_file                             = self.get_ticker_file(ticker)
+
+            # check if the ticker file exists
+            if not os.path.exists(ticker_file):
+                print(f"File for {ticker} does not exist. Skipping...")
+                # self.my_params["N_tickers"].remove(ticker)
+                # self.my_params["N"] -= 1
+                continue
+            backtest_param_dict["ticker_file"]      = ticker_file
             
             # !! everything happens here
             print(f"{i} - RUNNING BACKTEST FOR {ticker}")
@@ -718,7 +729,7 @@ class bt_top_N():
                     func(self)
         return wrapper
 
-    @p2f
+    # @p2f
     def display_results_top_N(self):
         """
         Displays the results of interest after setting the final attributes of backtest.bt_helper 
@@ -923,6 +934,61 @@ class set_results():
     """
     def __init__(self, df_closed):
         pass
+
+def get_ticker_file(path, time_frame, ticker):
+        ticker     = ticker.replace("/", "_")
+        return f"{path}{ticker}-{time_frame}.json"
+
+
+def get_top_N_trades(N, time_frame, path):
+    """
+    Returns a list of top N backtestable tickers (in the form that they appear inside the signal df) that exist inside 
+    binance data directory, that match the pattern of ticker files acc to provided time frame 
+    These are returned in their order of frequency from ticker with most signals, to least 
+    The list returned from this method will be fed to the class bt_top_N() as a parameter of 
+    ticker to be bactested | 2022-08-03 00:14
+    """
+    signal_file = "/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json"
+    signals_df   = pd.read_json(signal_file)
+
+    # getting top N tickers as a series object to iterate in the loop
+    ticker_counts = signals_df.value_counts("ticker", dropna=False)
+    N_tickers = ticker_counts.head(2* N)
+    
+    # turn N_ticker to a list
+    N_tickers = N_tickers.index.tolist()
+
+    pat_ticker_files = f"([A-Z]+\_[A-Z]+)\-{time_frame}\.json$"
+    # pat_ticker_files = "([A-Z]+\_[A-Z]+)\-(1h|30m|15m)\.json$"
+    
+    # under directory path, search all files that contian the pattern pat_ticker_files, return a list of tickers by turning the
+    # first capture group of all matches into a list
+    tickers = [re.search(pat_ticker_files, f).group(1) for f in os.listdir(path) if re.search(pat_ticker_files, f)]
+
+    top_ticker = []
+    # for each element in tickers, replace "_" with "/" and remove the last T if ends with "USDT"
+    print(tickers)
+
+    for i, ticker in enumerate(tickers):
+        ticker = ticker.replace("_", "/")
+        if ticker.endswith("USDT"):
+            # remove the last character
+            ticker = ticker[:-1]
+        tickers[i] = ticker
+
+        # get the index of ticker on N_tickers
+        ind = N_tickers.index(ticker)
+        top_ticker.append((ticker, ind))
+    
+    df_top = pd.DataFrame(top_ticker, columns=["ticker","rank"])
+
+    # sort acc to rank and turn top 20 into list
+    df_sorted = df_top.sort_values(by=['rank'])
+    top_ticker = df_sorted.head(N).ticker.tolist()
+
+    return top_ticker
+
+
 
 
 
