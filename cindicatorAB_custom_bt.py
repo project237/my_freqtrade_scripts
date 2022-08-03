@@ -607,14 +607,15 @@ class backtest():
         [print(f"   {x}: {self.my_params[x]}") for x in self.my_params.keys()]
         print()
         print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {self.tot_filtered}")
-        print(f"The number of total sells           - {self.tot_sells}")
-        print(f"The number of signals never sold    - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
-        print(f"The number of signals never bought  - {self.tot_never_bought}")
+        print(f"The number of total sells                    - {self.tot_sells}")
+        print(f"The number of signals never sold             - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
+        print(f"The number of signals never bought           - {self.tot_never_bought}")
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
         print()
-        print(f"Total return from best inficators that maximize total wins: \n{self.bt_helper.cumret_totwin_best_ind}")
-        print(f"Total return from best inficators that maximize ratio of wins to losses: \n{self.bt_helper.cumret_Rwin_best_ind}")
+        print(f"Total return from best inficators that maximize total wins: \n=======>{self.bt_helper.cumret_totwin_best_ind}<=======")
+        print(f"Total return from best inficators that maximize ratio of wins to losses: \n=======>{self.bt_helper.cumret_Rwin_best_ind}<=======")
+
         # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
@@ -628,7 +629,7 @@ class bt_top_N():
     def __init__(self, my_params: dict) -> None:
         self.N_tickers = my_params["N_tickers"]
         self.my_params = my_params
-        self.signal_df   = pd.read_json(my_params["signal_file"])
+        self.signal_df = pd.read_json(my_params["signal_file"])
         
         # getting top N tickers as a series object to iterate in the loop
 
@@ -649,12 +650,23 @@ class bt_top_N():
         self.cumret_totwin_best_ind = None
         self.cumret_Rwin_best_ind   = None
 
+        # todo -turn last 6 attributes above into dictionary
+        # self.backtest_results = {
+        #     "best_L_ind_totwin"     : self.best_L_ind_totwin,
+        #     "best_L_ind_Rwin"       : self.best_L_ind_Rwin,
+        #     "best_S_ind_totwin"     : self.best_S_ind_totwin,
+        #     "best_S_ind_Rwin"       : self.best_S_ind_Rwin,
+        #     "cumret_totwin_best_ind": self.cumret_totwin_best_ind,
+        #     "cumret_Rwin_best_ind"  : self.cumret_Rwin_best_ind,
+        # }
+
         col_names                   = [
             # !! Have decided that "ticker" wont be a column but a second level index instead"
             'indicator', 'is_win', '%profit', 'M_dt', 'candle1_dt', 
             'candle2_dt', 'low1', 'high1', 'entry_price', 'base', 'low2', 'high2', 
             'exit_price', 'above', 'below', 'elapsed_hours', 'elapsed_days'
         ]
+
         # initalize the empty df trades that each loop is going to append rows to
         self.df_closed_topN = pd.DataFrame(columns=col_names)
 
@@ -663,8 +675,15 @@ class bt_top_N():
         self.run_backtest()
         self.display_results_top_N()
 
-        # save all instance variables to self.my_params["output_file_dir"] using pickle
-        self.save_to_pickle()
+        # open new file with path self.my_params["output_file_dir"] if it doesnt exist
+        if not os.path.exists(self.my_params["output_file_dir"]):
+            os.makedirs(self.my_params["output_file_dir"])
+
+        # save self.df_closed_topN, self.df_long_steps, self.df_short_steps, self.best_indicators_df to self.my_params["output_file_dir"] as json
+        self.df_closed_topN.to_csv(self.my_params["output_file_dir"] + "df_closed_topN.json")
+        self.df_long_steps.to_json(self.my_params["output_file_dir"] + "df_long_steps.json")
+        self.df_short_steps.to_json(self.my_params["output_file_dir"] + "df_short_steps.json")
+        self.best_indicators_df.to_json(self.my_params["output_file_dir"] + "best_indicators_df.json")
 
     def get_ticker_file(self, ticker):
         # todo -use the glopbal version insteed
@@ -746,6 +765,7 @@ class bt_top_N():
         df_closed = self.df_closed_topN
 
         print("================================THE BACKTEST OF IS OVER================================")
+        print()
 
         # todo - sort df_closed acc to entry candles, should be from entry candle of 1st trade to exit candle of the last one
         df_closed_sorted = df_closed.sort_values(by=["M_dt"])
@@ -764,19 +784,23 @@ class bt_top_N():
         # backtest.tot_filtered will be the length of the signal_df filtered at the beginning
         print(f"The number of signals outside range ({min_indicator}, {max_indicator}) - {self.tot_signal_df_filtered}")
         # backtest.tot_sells will be the length of self.df_closed_topN
-        print(f"The number of total sells           - {self.tot_sells}")
-        print(f"The number of signals never sold    - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
-        print(f"The number of signals never bought  - {self.tot_never_bought}")
+        print(f"The number of total sells                    - {self.tot_sells}")
+        print(f"The number of signals never sold             - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
+        print(f"The number of signals never bought           - {self.tot_never_bought}")
 
         # todo - complete the rest after testing this part sofar 
         print( "\nThe df of top indicator values for shorts and longs:\n")
         print(self.best_indicators_df.to_markdown()) 
         print()
-        print(f"Total return from best inficators that maximize total wins: \n{self.cumret_totwin_best_ind}")
-        print(f"Total return from best inficators that maximize ratio of wins to losses: \n{self.cumret_Rwin_best_ind}")
+        print(f"Total return from best inficators that maximize total wins: \n=======> {self.cumret_totwin_best_ind} <=======")
+        print(f"Total return from best inficators that maximize ratio of wins to losses: \n=======> {self.cumret_Rwin_best_ind} <=======")
         # todo - end
-        # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
-        # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
+        print( "\nThe df of long indicator values and their performance metrics:\n")
+        print(self.df_long_steps.to_markdown()) 
+        print()
+        print( "\nThe df of short indicator values and their performance metrics:\n")
+        print(self.df_short_steps.to_markdown()) 
+        print()
         print("=======================================================================================")
 
 
@@ -935,20 +959,19 @@ class set_results():
     def __init__(self, df_closed):
         pass
 
-def get_ticker_file(path, time_frame, ticker):
-        ticker     = ticker.replace("/", "_")
-        return f"{path}{ticker}-{time_frame}.json"
-
-
-def get_top_N_trades(N, time_frame, path):
+def get_top_N_tickers(N, time_frame, path, signal_file="/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json") -> list:
     """
     Returns a list of top N backtestable tickers (in the form that they appear inside the signal df) that exist inside 
     binance data directory, that match the pattern of ticker files acc to provided time frame 
-    These are returned in their order of frequency from ticker with most signals, to least 
+    These are returned in their order of frequency from ticker with most signals, to least. 
     The list returned from this method will be fed to the class bt_top_N() as a parameter of 
     ticker to be bactested | 2022-08-03 00:14
+    
+    PARAMETERS:
+    N          - number of tickers to be returned, if it is greater than the number of tickers available, it will return all tickers
+    time_frame - the time frame of the tickers to be returned, can be "1h", "30m", "15m"
+    path       - the path to the directory containing the ticker files
     """
-    signal_file = "/home/u237/projects/parsing_cindicator/data/CND_AB_parsed_fix1.json"
     signals_df   = pd.read_json(signal_file)
 
     # getting top N tickers as a series object to iterate in the loop
@@ -963,30 +986,29 @@ def get_top_N_trades(N, time_frame, path):
     
     # under directory path, search all files that contian the pattern pat_ticker_files, return a list of tickers by turning the
     # first capture group of all matches into a list
-    tickers = [re.search(pat_ticker_files, f).group(1) for f in os.listdir(path) if re.search(pat_ticker_files, f)]
+    tickers_in_path = [re.search(pat_ticker_files, f).group(1) for f in os.listdir(path) if re.search(pat_ticker_files, f)]
 
-    top_ticker = []
+    top_N_ticker_in_path = []
     # for each element in tickers, replace "_" with "/" and remove the last T if ends with "USDT"
-    print(tickers)
 
-    for i, ticker in enumerate(tickers):
+    for i, ticker in enumerate(tickers_in_path):
         ticker = ticker.replace("_", "/")
         if ticker.endswith("USDT"):
             # remove the last character
             ticker = ticker[:-1]
-        tickers[i] = ticker
+        tickers_in_path[i] = ticker
 
         # get the index of ticker on N_tickers
         ind = N_tickers.index(ticker)
-        top_ticker.append((ticker, ind))
+        top_N_ticker_in_path.append((ticker, ind))
     
-    df_top = pd.DataFrame(top_ticker, columns=["ticker","rank"])
+    df_top = pd.DataFrame(top_N_ticker_in_path, columns=["ticker","rank"])
 
     # sort acc to rank and turn top 20 into list
     df_sorted = df_top.sort_values(by=['rank'])
-    top_ticker = df_sorted.head(N).ticker.tolist()
+    top_N_ticker_in_path = df_sorted.head(N).ticker.tolist()
 
-    return top_ticker
+    return top_N_ticker_in_path
 
 
 
