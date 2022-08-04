@@ -613,8 +613,8 @@ class backtest():
         print( "\nThe table of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
         print()
-        print(f"ROI from best indicators that maximize total wins: \n=======>{self.bt_helper.cumret_totwin_best_ind}<=======")
-        print(f"ROI from best indicators that maximize ratio of wins to losses: \n=======>{self.bt_helper.cumret_Rwin_best_ind}<=======")
+        print(f"ROI from best topN and indicators that maximize total wins: \n=======>{self.bt_helper.cumret_totwin_best_ind}<=======")
+        print(f"ROI from best topN and indicators that maximize ratio of wins to losses: \n=======>{self.bt_helper.cumret_Rwin_best_ind}<=======")
 
         # print( "\nThe table of long trades above the indicator that maximizes cumulateive return:\n")
         # print( "\nThe table of short trades below the indicator that maximizes cumulateive return:\n")
@@ -647,8 +647,8 @@ class bt_top_N():
         self.best_L_ind_Rwin        = None
         self.best_S_ind_totwin      = None
         self.best_S_ind_Rwin        = None
-        self.cumret_totwin_best_ind = None
-        self.cumret_Rwin_best_ind   = None
+        self.cumret_totwin_best_ind = 0
+        self.cumret_Rwin_best_ind   = 0
 
         # todo -turn last 6 attributes above into dictionary
         # self.backtest_results = {
@@ -669,6 +669,9 @@ class bt_top_N():
 
         # initalize the empty df trades that each loop is going to append rows to
         self.df_closed_topN = pd.DataFrame(columns=col_names)
+        self.best_indicators_df_topN = pd.DataFrame(columns=["topN", "best_indicator", "trades", "wins", "Rwin", "ROI"])
+        # make column topN int
+        self.best_indicators_df_topN["topN"] = self.best_indicators_df_topN["topN"].astype(int)
 
         # =====================RUNNING THE BACKTEST=====================
 
@@ -724,10 +727,23 @@ class bt_top_N():
             # df_ticker["ticker"]        = ticker
 
             # add the ticker as a second level index
-            # todo - make sure this is the right place to do this
-            pd.concat([df_ticker], keys=[ticker], names=['ticker'])
+            # pd.concat([df_ticker], keys=[ticker], names=['ticker'])
+            df_ticker['ticker'] = ticker
+            df_ticker.set_index('ticker', append=True, inplace=True)
             # append df_ticker to df_tickers
             self.df_closed_topN = pd.concat([self.df_closed_topN, df_ticker])
+
+            # we run this to update self.best_indicators_df
+            self.set_full_exit_df()
+            # add the N as a second level index
+            # pd.concat([self.best_indicators_df], keys=[(i+1)], names=['top-N'])
+            self.best_indicators_df['topN'] = i
+            # self.best_indicators_df.set_index('ticker', append=True, inplace=True)
+            # sort acc to column topN
+            # self.best_indicators_df.sort_values(by=['topN'], inplace=True)
+
+            # append current best_indicators_df to best_indicators_df_topN
+            self.best_indicators_df_topN = pd.concat([self.best_indicators_df_topN, self.best_indicators_df])
 
         self.tot_signal_df_filtered = cum_signal_df_filtered
         self.tot_bought_never_sold  = cum_tot_bought_never_sold
@@ -736,6 +752,7 @@ class bt_top_N():
 
         # here we run the global version of set_full_exit_df
         self.set_full_exit_df()
+        self.best_indicators_df_topN.sort_index(inplace=True)
 
     def p2f(func):
         def wrapper(self):
@@ -793,7 +810,7 @@ class bt_top_N():
 
         # todo - complete the rest after testing this part sofar 
         print( "\nThe table of top indicator values for shorts and longs:\n")
-        print(self.best_indicators_df.to_markdown()) 
+        print(self.best_indicators_df_topN.to_markdown()) 
         print()
         print(f"ROI from best indicators that maximize total wins: \n=======> {self.cumret_totwin_best_ind} <=======")
         print(f"ROI from best indicators that maximize ratio of wins to losses: \n=======> {self.cumret_Rwin_best_ind} <=======")
@@ -852,8 +869,9 @@ class bt_top_N():
         dict_short_cumret      = self.get_best_indicator(self.df_short_steps, "ROI")
         self.best_S_ind_totwin = dict_short_cumret["best_indicator"]
 
-        self.cumret_totwin_best_ind = round((1 + dict_long_cumret["ROI"]) * (1 + dict_short_cumret["ROI"]) - 1, 4)
-        self.cumret_Rwin_best_ind   = round(( 1+ dict_long_rwin["ROI"]) * (1 + dict_short_rwin["ROI"]) - 1, 4)
+        # update if current N produces better results
+        self.cumret_totwin_best_ind = max(self.cumret_totwin_best_ind, round((1 + dict_long_cumret["ROI"]) * (1 + dict_short_cumret["ROI"]) - 1, 4))
+        self.cumret_Rwin_best_ind   = max(self.cumret_totwin_best_ind, round(( 1+ dict_long_rwin["ROI"]) * (1 + dict_short_rwin["ROI"]) - 1, 4))
 
         dict = {
             "long_rwin"   : dict_long_rwin,
@@ -979,7 +997,7 @@ def get_top_N_tickers(N, time_frame, path, signal_file="/home/u237/projects/pars
 
     # getting top N tickers as a series object to iterate in the loop
     ticker_counts = signals_df.value_counts("ticker", dropna=False)
-    N_tickers = ticker_counts.head(2* N)
+    N_tickers = ticker_counts.head(100)
     
     # turn N_ticker to a list
     N_tickers = N_tickers.index.tolist()
