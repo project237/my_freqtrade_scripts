@@ -184,12 +184,12 @@ class step():
     Stores step objects the will be used by class bt_helper for creating final bactest results 
     Could have been a dict but you know, whatever. | 2022-07-24 19:31
     """
-    def __init__(self, cutoff, trades, wins, Rwin, cum_ret) -> None:
+    def __init__(self, cutoff, trades, wins, Rwin, ROI) -> None:
         self.cutoff  = cutoff
         self.trades  = trades
         self.wins    = wins
         self.Rwin    = Rwin
-        self.cum_ret = cum_ret
+        self.ROI = ROI
 
 class bt_helper():
     """
@@ -306,7 +306,7 @@ class bt_helper():
             "trades"        : ref_row.trades,
             "wins"          : ref_row.wins,
             "Rwin"          : ref_row.Rwin,
-            "cum_ret"       : ref_row.cum_ret
+            "ROI"           : ref_row.ROI,
         }
         return dict
 
@@ -317,15 +317,15 @@ class bt_helper():
         """
         dict_long_rwin         = self.get_best_indicator(self.df_long_steps, "Rwin")
         self.best_L_ind_Rwin   = dict_long_rwin["best_indicator"]
-        dict_long_cumret       = self.get_best_indicator(self.df_long_steps, "cum_ret")
+        dict_long_cumret       = self.get_best_indicator(self.df_long_steps, "ROI")
         self.best_L_ind_totwin = dict_long_cumret["best_indicator"]
         dict_short_rwin        = self.get_best_indicator(self.df_short_steps, "Rwin")
         self.best_S_ind_Rwin   = dict_short_rwin["best_indicator"]
-        dict_short_cumret      = self.get_best_indicator(self.df_short_steps, "cum_ret")
+        dict_short_cumret      = self.get_best_indicator(self.df_short_steps, "ROI")
         self.best_S_ind_totwin = dict_short_cumret["best_indicator"]
 
-        self.cumret_totwin_best_ind = round((1 + dict_long_cumret["cum_ret"]) * (1 + dict_short_cumret["cum_ret"]) - 1, 4)
-        self.cumret_Rwin_best_ind   = round(( 1+ dict_long_rwin["cum_ret"]) * (1 + dict_short_rwin["cum_ret"]) - 1, 4)
+        self.cumret_totwin_best_ind = round((1 + dict_long_cumret["ROI"]) * (1 + dict_short_cumret["ROI"]) - 1, 4)
+        self.cumret_Rwin_best_ind   = round(( 1+ dict_long_rwin["ROI"]) * (1 + dict_short_rwin["ROI"]) - 1, 4)
 
         dict = {
             "long_rwin"   : dict_long_rwin,
@@ -416,19 +416,19 @@ class bt_helper():
                 wins = this_slice[this_slice.is_win == True].shape[0]
 
                 # calculate wins / total
-                r_wins = wins / num_of_trades
+                r_wins = round((wins / num_of_trades), 3)
 
                 # calculate cumulative profit
                 # todo - make sure it is the correct form
-                # cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
-                cum_rets = np.cumprod(1 + this_slice['%profit'].values) - 1
-                cumret = cum_rets[-1]
+                # ROIs = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                ROIs = np.cumprod(1 + this_slice['%profit'].values) - 1
+                cumret = round(ROIs[-1], 3)
 
             # add the step to the list of steps
             long_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
         # create a df from steps and assign to self.df_long_steps
-        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "ROI"])
 
         # loop for shorts
         short_steps = []
@@ -454,19 +454,19 @@ class bt_helper():
                 wins = this_slice[this_slice.is_win == True].shape[0]
 
                 # calculate wins / total
-                r_wins = wins / num_of_trades
+                r_wins = round((wins / num_of_trades), 3)
 
                 # calculate cumulative profit
                 # todo - make sure it is the correct form
-                # cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
-                cum_rets = np.cumprod(1 + this_slice['%profit'].values) - 1
-                cumret = cum_rets[-1]
+                # ROIs = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                ROIs = np.cumprod(1 + this_slice['%profit'].values) - 1
+                cumret = round(ROIs[-1], 3)
 
             # add the step to the list of steps
             short_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
         # create a df from steps and assign to self.df_long_steps
-        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "ROI"])
 
         self.get_best_indicators()
 
@@ -610,14 +610,14 @@ class backtest():
         print(f"The number of total sells                    - {self.tot_sells}")
         print(f"The number of signals never sold             - {self.tot_bought_never_sold}") # all signals that were sold were popped from here
         print(f"The number of signals never bought           - {self.tot_never_bought}")
-        print( "\nThe df of top indicator values for shorts and longs:\n")
+        print( "\nThe table of top indicator values for shorts and longs:\n")
         print(self.bt_helper.best_indicators_df.to_markdown()) 
         print()
-        print(f"Total return from best inficators that maximize total wins: \n=======>{self.bt_helper.cumret_totwin_best_ind}<=======")
-        print(f"Total return from best inficators that maximize ratio of wins to losses: \n=======>{self.bt_helper.cumret_Rwin_best_ind}<=======")
+        print(f"ROI from best indicators that maximize total wins: \n=======>{self.bt_helper.cumret_totwin_best_ind}<=======")
+        print(f"ROI from best indicators that maximize ratio of wins to losses: \n=======>{self.bt_helper.cumret_Rwin_best_ind}<=======")
 
-        # print( "\nThe df of long trades above the indicator that maximizes cumulateive return:\n")
-        # print( "\nThe df of short trades below the indicator that maximizes cumulateive return:\n")
+        # print( "\nThe table of long trades above the indicator that maximizes cumulateive return:\n")
+        # print( "\nThe table of short trades below the indicator that maximizes cumulateive return:\n")
         print("=======================================================================================")
 
 class bt_top_N():
@@ -768,9 +768,12 @@ class bt_top_N():
         print()
 
         # todo - sort df_closed acc to entry candles, should be from entry candle of 1st trade to exit candle of the last one
+        # df_closed_sorted = df_closed.sort_values(by=["M_dt"])
+        # day0             = df_closed_sorted.M_dt.iloc[0]
+        # dayLast          = df_closed_sorted.M_dt.iloc[-1]
         df_closed_sorted = df_closed.sort_values(by=["M_dt"])
-        day0             = df_closed_sorted.M_dt.iloc[0]
-        dayLast          = df_closed_sorted.M_dt.iloc[-1]
+        day0             = df_closed_sorted.candle1_dt.iloc[0]
+        dayLast          = df_closed_sorted.candle1_dt.iloc[-1]
 
         print(f"Showing results for backtest between times of: \n{day0}\n{dayLast}")
         arL = arrow.get(dayLast)
@@ -789,16 +792,16 @@ class bt_top_N():
         print(f"The number of signals never bought           - {self.tot_never_bought}")
 
         # todo - complete the rest after testing this part sofar 
-        print( "\nThe df of top indicator values for shorts and longs:\n")
+        print( "\nThe table of top indicator values for shorts and longs:\n")
         print(self.best_indicators_df.to_markdown()) 
         print()
-        print(f"Total return from best inficators that maximize total wins: \n=======> {self.cumret_totwin_best_ind} <=======")
-        print(f"Total return from best inficators that maximize ratio of wins to losses: \n=======> {self.cumret_Rwin_best_ind} <=======")
+        print(f"ROI from best indicators that maximize total wins: \n=======> {self.cumret_totwin_best_ind} <=======")
+        print(f"ROI from best indicators that maximize ratio of wins to losses: \n=======> {self.cumret_Rwin_best_ind} <=======")
         # todo - end
-        print( "\nThe df of long indicator values and their performance metrics:\n")
+        print( "\nThe table of long indicator values and their performance metrics:\n")
         print(self.df_long_steps.to_markdown()) 
         print()
-        print( "\nThe df of short indicator values and their performance metrics:\n")
+        print( "\nThe table of short indicator values and their performance metrics:\n")
         print(self.df_short_steps.to_markdown()) 
         print()
         print("=======================================================================================")
@@ -828,7 +831,7 @@ class bt_top_N():
             "trades"        : ref_row.trades,
             "wins"          : ref_row.wins,
             "Rwin"          : ref_row.Rwin,
-            "cum_ret"       : ref_row.cum_ret
+            "ROI"           : ref_row.ROI,
         }
         return dict
 
@@ -842,15 +845,15 @@ class bt_top_N():
         """
         dict_long_rwin         = self.get_best_indicator(self.df_long_steps, "Rwin")
         self.best_L_ind_Rwin   = dict_long_rwin["best_indicator"]
-        dict_long_cumret       = self.get_best_indicator(self.df_long_steps, "cum_ret")
+        dict_long_cumret       = self.get_best_indicator(self.df_long_steps, "ROI")
         self.best_L_ind_totwin = dict_long_cumret["best_indicator"]
         dict_short_rwin        = self.get_best_indicator(self.df_short_steps, "Rwin")
         self.best_S_ind_Rwin   = dict_short_rwin["best_indicator"]
-        dict_short_cumret      = self.get_best_indicator(self.df_short_steps, "cum_ret")
+        dict_short_cumret      = self.get_best_indicator(self.df_short_steps, "ROI")
         self.best_S_ind_totwin = dict_short_cumret["best_indicator"]
 
-        self.cumret_totwin_best_ind = round((1 + dict_long_cumret["cum_ret"]) * (1 + dict_short_cumret["cum_ret"]) - 1, 4)
-        self.cumret_Rwin_best_ind   = round(( 1+ dict_long_rwin["cum_ret"]) * (1 + dict_short_rwin["cum_ret"]) - 1, 4)
+        self.cumret_totwin_best_ind = round((1 + dict_long_cumret["ROI"]) * (1 + dict_short_cumret["ROI"]) - 1, 4)
+        self.cumret_Rwin_best_ind   = round(( 1+ dict_long_rwin["ROI"]) * (1 + dict_short_rwin["ROI"]) - 1, 4)
 
         dict = {
             "long_rwin"   : dict_long_rwin,
@@ -897,19 +900,19 @@ class bt_top_N():
                 wins = this_slice[this_slice.is_win == True].shape[0]
 
                 # calculate wins / total
-                r_wins = wins / num_of_trades
+                r_wins = round((wins / num_of_trades), 3)
 
                 # calculate cumulative profit
                 # todo - make sure it is the correct form
-                # cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
-                cum_rets = np.cumprod(1 + this_slice['%profit'].values) - 1
-                cumret = cum_rets[-1]
+                # ROIs = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                ROIs = np.cumprod(1 + this_slice['%profit'].values) - 1
+                cumret = round(ROIs[-1], 3)
 
             # add the step to the list of steps
             long_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
         # create a df from steps and assign to self.df_long_steps
-        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+        self.df_long_steps = pd.DataFrame([vars(s) for s in long_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "ROI"])
 
         # ========================LOOP FOR SHORTS========================
         short_steps = []
@@ -935,19 +938,19 @@ class bt_top_N():
                 wins = this_slice[this_slice.is_win == True].shape[0]
 
                 # calculate wins / total
-                r_wins = wins / num_of_trades
+                r_wins = round((wins / num_of_trades), 3)
 
                 # calculate cumulative profit
                 # todo - make sure it is the correct form
-                # cum_rets = np.cumprod(1 + this_slice['profit_percent'].values) - 1
-                cum_rets = np.cumprod(1 + this_slice['%profit'].values) - 1
-                cumret = cum_rets[-1]
+                # ROIs = np.cumprod(1 + this_slice['profit_percent'].values) - 1
+                ROIs = np.cumprod(1 + this_slice['%profit'].values) - 1
+                cumret = round(ROIs[-1], 3)
 
             # add the step to the list of steps
             short_steps.append(step(s, num_of_trades, wins, r_wins, cumret))
 
         # create a df from steps and assign to self.df_long_steps
-        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "cum_ret"])
+        self.df_short_steps = pd.DataFrame([vars(s) for s in short_steps])#, columns=["cutoff", "num_trades", "num_wins", "Rwin", "ROI"])
 
         self.get_best_indicators()
 
@@ -1009,6 +1012,23 @@ def get_top_N_tickers(N, time_frame, path, signal_file="/home/u237/projects/pars
     top_N_ticker_in_path = df_sorted.head(N).ticker.tolist()
 
     return top_N_ticker_in_path
+
+def tickers_to_config(N_tickers):
+    """
+    Print all tickers inside N_tickers (list of top tickers inside signal_df) as json list of string
+    The string printed will be directly copied into the config file of the backtest  
+    """
+    tickers = N_tickers.index.tolist()
+
+    # append T to the end of any item in tickers that ends with "USD"
+    for i, ticker in enumerate(tickers):
+        if ticker.endswith("USD"):
+            tickers[i] = ticker + "T"
+        # also add double quotes to the tickers
+        tickers[i] = '"' + tickers[i] + '"'
+
+    tickers_json = "[\n\t" + ",\n\t".join(tickers) + "\n]"
+    print(tickers_json)
 
 
 
