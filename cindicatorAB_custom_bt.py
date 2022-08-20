@@ -27,9 +27,9 @@ tqdm.pandas(desc="my bar!")
 
 # parameters that will go to hyperopt
 my_params = {
-    "trade_buffer" : 0.99,
-    "min_indicator": 80,   # for long signals
-    "max_indicator": 20  # for short signals
+    "trade_buffer" : 1,
+    "min_indicator": 70,   # for long signals
+    "max_indicator": 40  # for short signals
     # these two will be directly multiplied with the raw signal price
     }
 
@@ -336,6 +336,10 @@ class bt_helper():
         self.best_indicators = dict
         self.best_indicators_df = pd.DataFrame(dict).T
 
+        # make column trades and wins int
+        self.best_indicators_df["trades"] = self.best_indicators_df["trades"].astype(int)
+        self.best_indicators_df["wins"]   = self.best_indicators_df["wins"].astype(int)
+
     def construct_trade_df(self):
         """
         # construct a df that will contain rows as trades inside bt_helper.closed_trades with attributes of 
@@ -394,7 +398,7 @@ class bt_helper():
 
         # loop for longs
         long_steps = []
-        long_steps_loop = np.arange(92, 79.5, -0.5)
+        long_steps_loop = np.arange(92, 69.5, -0.5)
 
         for i, s in enumerate(long_steps_loop):
             # select all trades in df_closed with indicator above i
@@ -432,7 +436,7 @@ class bt_helper():
 
         # loop for shorts
         short_steps = []
-        short_steps_loop = np.arange(8, 20.5, 0.5)
+        short_steps_loop = np.arange(8, 40.5, 0.5)
 
         for i, s in enumerate(short_steps_loop):
             # select all trades in df_closed with indicator below i
@@ -649,6 +653,7 @@ class bt_top_N():
         self.best_S_ind_Rwin        = None
         self.cumret_totwin_best_ind = 0
         self.cumret_Rwin_best_ind   = 0
+        self.best_indicators_df_dict = {} # array of backtest objects
 
         # todo -turn last 6 attributes above into dictionary
         # self.backtest_results = {
@@ -721,6 +726,9 @@ class bt_top_N():
             bt                         = backtest(backtest_param_dict, self.signal_df, local_mode=False)
             df_ticker                  = bt.bt_helper.df_closed
 
+            # ad value bt.bt_halper.best_indicators_df to self.self.best_indicators_df_dict with ticker as key
+            self.best_indicators_df_dict[ticker] = bt.bt_helper.best_indicators_df
+
             cum_signal_df_filtered    += bt.tot_filtered
             cum_tot_bought_never_sold += bt.tot_bought_never_sold
             cum_tot_never_bought      += bt.tot_never_bought
@@ -752,7 +760,9 @@ class bt_top_N():
 
         # here we run the global version of set_full_exit_df
         self.set_full_exit_df()
-        self.best_indicators_df_topN.sort_index(inplace=True)
+        self.best_indicators_df_topN.index.name = "index" 
+        self.best_indicators_df_topN.sort_values(by = ['index', 'topN'], inplace=True)
+
 
     def p2f(func):
         def wrapper(self):
@@ -821,6 +831,8 @@ class bt_top_N():
         print( "\nThe table of short indicator values and their performance metrics:\n")
         print(self.df_short_steps.to_markdown()) 
         print()
+        print( "\nThe tables of top indicator values for shorts and longs, per each ticker:")
+        [print(f"\n{x}:", self.best_indicators_df_dict[x], sep="\n") for x in self.best_indicators_df_dict.keys()]
         print("=======================================================================================")
 
 
@@ -896,7 +908,7 @@ class bt_top_N():
 
         # ========================LOOP FOR LONGS========================
         long_steps = []
-        long_steps_loop = np.arange(92, 79.5, -0.5)
+        long_steps_loop = np.arange(92, 69.5, -0.5)
 
         for i, s in enumerate(long_steps_loop):
             # select all trades in df_closed with indicator above i
@@ -934,7 +946,7 @@ class bt_top_N():
 
         # ========================LOOP FOR SHORTS========================
         short_steps = []
-        short_steps_loop = np.arange(8, 20.5, 0.5)
+        short_steps_loop = np.arange(8, 40.5, 0.5)
 
         for i, s in enumerate(short_steps_loop):
             # select all trades in df_closed with indicator below i
